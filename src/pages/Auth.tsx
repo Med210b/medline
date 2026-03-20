@@ -4,23 +4,23 @@ import { supabase } from '@/src/lib/supabase';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
-import { Camera, Mail, PhoneIcon, User, ArrowLeft } from 'lucide-react';
+import { Mail, User, ArrowLeft } from 'lucide-react';
 import PhoneInput from 'react-phone-number-input';
-import 'react-phone-number-input/style.css'; // Don't forget the css!
+import 'react-phone-number-input/style.css'; 
 
-// Define the steps to handle state flow
 type AuthStep = 'phone' | 'profile' | 'email_input' | 'otp';
+type AuthMode = 'signup' | 'login';
 
 export default function Auth() {
   const navigate = useNavigate();
   
   // 1. Core State
+  const [mode, setMode] = useState<AuthMode>('signup');
   const [step, setStep] = useState<AuthStep>('phone');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // 2. Form States
-  // Using React Phone Input library
   const [phone, setPhone] = useState<string | undefined>(''); 
   const [name, setName] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -34,34 +34,37 @@ export default function Auth() {
     setStep(to);
   }
 
-  // Handle image preview
+  const switchToLogin = () => {
+    setMode('login');
+    setStep('email_input');
+    setError(null);
+  }
+
+  const switchToSignup = () => {
+    setMode('signup');
+    setStep('phone');
+    setError(null);
+  }
+
   const handleAvatarSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
     if (!event.target.files || event.target.files.length === 0) return;
-    
     const file = event.target.files[0];
     setAvatarFile(file);
-    // Create a temporary local URL for preview
     setAvatarPreview(URL.createObjectURL(file));
   };
 
-  // 4. Submission Handlers for each step
-
-  // STEP 1: Submit Phone Number
+  // 4. Submission Handlers
   const submitPhone = (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone) {
       setError("Please enter a valid phone number.");
       return;
     }
-    // No Supabase auth here yet, just moving logic flow.
-    // In a real production app, you might want to call an edge function
-    // to check if this phone is already in use by a confirmed account.
     setError(null);
     setStep('profile');
   };
 
-  // STEP 2: Submit Profile Data
   const submitProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -72,7 +75,6 @@ export default function Auth() {
     setStep('email_input');
   };
 
-  // STEP 3: Submit Email (This initiates the actual auth)
   const submitEmailAndSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
@@ -84,16 +86,8 @@ export default function Auth() {
     setError(null);
     
     try {
-      // Initiate Supabase sign in with OTP.
-      // Since we haven't officially created the user yet, 
-      // Supabase treats this as the first step of creating an account.
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email,
-      });
-      
+      const { error: otpError } = await supabase.auth.signInWithOtp({ email });
       if (otpError) throw otpError;
-
-      // Proceed to the last step (OTP entry)
       setStep('otp');
     } catch (err: any) {
       setError(err.message || "Failed to send verification email. Please check your address.");
@@ -102,18 +96,17 @@ export default function Auth() {
     }
   };
 
-  // STEP 4: Final Verification (OTP entry + Data saving)
   const verifyAndCompleteAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (emailOtp.length !== 6) {
-      setError("The verification code must be exactly 6 numbers.");
+    
+    if (emailOtp.length !== 8) {
+      setError("The verification code must be exactly 8 numbers.");
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
-      // 1. Verify the OTP sent to email. On success, the session is established.
       const { data: { user: authUser }, error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: emailOtp,
@@ -122,44 +115,49 @@ export default function Auth() {
       
       if (verifyError || !authUser) throw verifyError || new Error("Auth failed.");
 
-      // 2. Session is good! Now upload the avatar to Supabase Storage.
+      const { data: existingProfile } = await supabase.from('users').select('name').eq('id', authUser.id).maybeSingle();
+
+      if (existingProfile && existingProfile.name) {
+        await supabase.from('users').update({
+          is_online: true,
+          last_seen: new Date().toISOString()
+        }).eq('id', authUser.id);
+        
+        navigate('/chat');
+        return; 
+      }
+
+      if (mode === 'login' || !name || !phone) {
+          setError("Account not found. Please click 'Sign Up' to create a new profile.");
+          await supabase.auth.signOut();
+          return;
+      }
+
       let uploadedAvatarUrl = '';
       if (avatarFile) {
-        // Simple file naming based on timestamp + random number
         const fileExt = avatarFile.name.split('.').pop();
         const fileName = `${authUser.id}-${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, avatarFile);
 
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, avatarFile);
-
-        if (uploadError) {
-          console.error("Avatar upload error:", uploadError);
-          // Don't crash the auth if image upload fails, just proceed without avatar.
-        } else {
-          // Get the public URL for the newly uploaded file
+        if (!uploadError) {
           const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
           uploadedAvatarUrl = data.publicUrl;
         }
       }
 
-      // 3. Final Step: Save the profile data to our public 'users' table.
-      // Note: We use the `phone` variable which was collected in step 1.
       const updates = {
         id: authUser.id,
         name,
         avatar_url: uploadedAvatarUrl,
-        phone, // Using the phone state from step 1
+        phone, 
         email,
         is_online: true,
         last_seen: new Date().toISOString(),
       };
       
-      // Upsert will insert if new, update if existing (e.g. if auth was partially completed previously)
       const { error: dbError } = await supabase.from('users').upsert(updates);
       if (dbError) throw dbError;
       
-      // Authentication complete! Navigate to chat.
       navigate('/chat');
     } catch (err: any) {
       setError(err.message || 'Invalid code. Please try again or resend a new PIN.');
@@ -169,173 +167,181 @@ export default function Auth() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            {step === 'profile' ? 'Profile Setup' : 'MedLine'}
+    <div className="flex min-h-screen items-center justify-center bg-white sm:bg-slate-100 p-0 sm:p-4 font-sans">
+      <div className="w-full h-full sm:h-auto max-w-sm sm:rounded-2xl bg-white sm:p-8 p-6 sm:shadow-xl flex flex-col justify-center sm:justify-start">
+        
+        {/* Header Section */}
+        <div className="mb-8 text-center pt-8 sm:pt-0">
+          <h1 className="text-2xl font-semibold text-[#111b21] mb-2 tracking-tight">
+            {step === 'profile' ? 'Profile info' : mode === 'login' ? 'Log in to MedLine' : 'Verify your number'}
           </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {step === 'phone' && "Enter your number to sign up"}
-            {step === 'profile' && "Set your profile photo and name"}
-            {step === 'email_input' && "Enter your email for security"}
-            {step === 'otp' && `Check your email (${email}) for the 6-digit code`}
+          <p className="text-[15px] leading-relaxed text-[#54656f]">
+            {mode === 'login' && step === 'email_input' && "Enter your email address to log back into your account."}
+            {mode === 'signup' && step === 'phone' && "MedLine will send a verification code to this number."}
+            {step === 'profile' && "Please provide your name and an optional profile photo."}
+            {mode === 'signup' && step === 'email_input' && "Add an email address for extra account security."}
+            {step === 'otp' && `Waiting to automatically detect the 8-digit code sent to ${email}.`}
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
+          <div className="mb-6 rounded-lg bg-red-50 p-4 text-sm text-red-600 text-center border border-red-100">
             {error}
           </div>
         )}
 
-        {/* --- STEP 1: PHONE --- */}
-        {step === 'phone' && (
-          <form onSubmit={submitPhone} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number</Label>
-              {/* react-phone-number-input component */}
-              <div className="flex w-full">
-                 <PhoneInput
-                  international
-                  defaultCountry="AE" // Dubai, as requested by the region context
-                  placeholder="Enter phone number"
-                  value={phone}
-                  onChange={setPhone}
-                  // We map the library's input styles to match your Tailwind setup
-                  className="w-full"
-                  inputComponent={Input}
-                />
+        <div className="flex-1 flex flex-col">
+          {/* --- STEP 1: PHONE (Signup Only) --- */}
+          {step === 'phone' && mode === 'signup' && (
+            <form onSubmit={submitPhone} className="flex flex-col h-full">
+              <div className="space-y-1 mb-auto">
+                <div className="flex w-full border-b-2 border-[#00a884] focus-within:border-[#00a884] transition-colors py-2">
+                   <PhoneInput
+                    international
+                    defaultCountry="AE"
+                    placeholder="phone number"
+                    value={phone}
+                    onChange={setPhone}
+                    className="w-full text-lg outline-none bg-transparent"
+                    inputComponent={Input}
+                    style={{ border: 'none', boxShadow: 'none', paddingLeft: '8px' }}
+                  />
+                </div>
               </div>
-            </div>
-            <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700">
-              Continue
-            </Button>
-            <div className="text-center mt-4">
-              <button type="button" onClick={() => {}} className="text-sm text-indigo-600 hover:text-indigo-500">
-                Already have an account? Log in
-              </button>
-            </div>
-          </form>
-        )}
+              
+              <div className="mt-12 flex flex-col items-center gap-6">
+                <Button type="submit" className="w-[120px] rounded-full bg-[#00a884] hover:bg-[#058b6e] text-white font-medium py-6 text-base shadow-sm">
+                  Next
+                </Button>
+                <button type="button" onClick={switchToLogin} className="text-[15px] text-[#00a884] hover:underline font-medium">
+                  Already have an account? Log in
+                </button>
+              </div>
+            </form>
+          )}
 
-        {/* --- STEP 2: PROFILE (Avatar + Name) --- */}
-        {step === 'profile' && (
-          <form onSubmit={submitProfile} className="space-y-6">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="relative h-24 w-24 overflow-hidden rounded-full bg-slate-100 border border-slate-200 shadow-inner">
-                {avatarPreview ? (
-                  <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-slate-400">
-                    <User size={32} />
+          {/* --- STEP 2: PROFILE (Signup Only) --- */}
+          {step === 'profile' && mode === 'signup' && (
+            <form onSubmit={submitProfile} className="flex flex-col h-full">
+              <div className="flex flex-col items-center space-y-6 mb-auto">
+                <div className="relative h-32 w-32 overflow-hidden rounded-full bg-[#f0f2f5] flex items-center justify-center group cursor-pointer transition-all hover:bg-[#e9edef]">
+                  {avatarPreview ? (
+                    <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
+                  ) : (
+                    <User size={48} className="text-[#aebac1]" />
+                  )}
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                     <span className="text-sm font-medium text-white uppercase tracking-wider">Add Photo</span>
                   </div>
-                )}
-                <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 opacity-0 transition-opacity hover:opacity-100">
-                  <span className="text-xs text-white">Upload</span>
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleAvatarSelect}
-                    className="hidden"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
-                </label>
+                </div>
+
+                <div className="w-full">
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Type your name here"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="w-full border-0 border-b-2 border-[#00a884] rounded-none px-0 py-2 text-lg focus-visible:ring-0 shadow-none bg-transparent"
+                  />
+                </div>
               </div>
-               <Label className="text-xs text-slate-500 cursor-pointer">
-                Profile picture (Optional)
-              </Label>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="name">Display Name</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="How others see you"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
+              <div className="mt-12 flex items-center justify-between w-full">
+                  <Button type="button" variant="ghost" size="icon" onClick={() => goBack('phone')} className="text-[#54656f] hover:bg-[#f0f2f5] rounded-full">
+                      <ArrowLeft className="h-6 w-6" />
+                  </Button>
+                  <Button type="submit" className="w-[120px] rounded-full bg-[#00a884] hover:bg-[#058b6e] text-white font-medium py-6 text-base shadow-sm">
+                      Next
+                  </Button>
+              </div>
+            </form>
+          )}
 
-            <div className="flex space-x-2 pt-2">
-                <Button type="button" variant="outline" size="icon" onClick={() => goBack('phone')}>
-                    <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <Button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700">
-                    Continue
-                </Button>
-            </div>
-          </form>
-        )}
+          {/* --- STEP 3: EMAIL INPUT (Both Modes) --- */}
+          {step === 'email_input' && (
+            <form onSubmit={submitEmailAndSendOtp} className="flex flex-col h-full">
+              <div className="space-y-4 mb-auto">
+                <div className="relative flex items-center border-b-2 border-[#00a884] py-2">
+                  <Mail className="h-5 w-5 text-[#8696a0] mr-3" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="Email address"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="border-0 p-0 text-lg shadow-none focus-visible:ring-0 rounded-none bg-transparent w-full"
+                    required
+                  />
+                </div>
+              </div>
+              
+              <div className="mt-12 flex flex-col items-center gap-6">
+                 <div className="flex items-center justify-between w-full">
+                    {mode === 'signup' ? (
+                      <Button type="button" variant="ghost" size="icon" disabled={loading} onClick={() => goBack('profile')} className="text-[#54656f] hover:bg-[#f0f2f5] rounded-full">
+                          <ArrowLeft className="h-6 w-6" />
+                      </Button>
+                    ) : (
+                      <div className="w-10"></div> /* Spacer */
+                    )}
+                    <Button type="submit" className="px-8 rounded-full bg-[#00a884] hover:bg-[#058b6e] text-white font-medium py-6 text-base shadow-sm" disabled={loading}>
+                        {loading ? 'Sending...' : 'Send PIN'}
+                    </Button>
+                </div>
+                {mode === 'login' && (
+                  <button type="button" onClick={switchToSignup} className="text-[15px] text-[#00a884] hover:underline font-medium">
+                    Need an account? Sign up
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
 
-        {/* --- STEP 3: EMAIL INPUT --- */}
-        {step === 'email_input' && (
-          <form onSubmit={submitEmailAndSendOtp} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          {/* --- STEP 4: FINAL Verification (Email OTP) --- */}
+          {step === 'otp' && (
+            <form onSubmit={verifyAndCompleteAuth} className="flex flex-col h-full">
+              <div className="flex flex-col items-center mb-auto space-y-6">
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-9"
+                  id="emailOtp"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={8}
+                  placeholder="— — — — — — — —"
+                  value={emailOtp}
+                  onChange={(e) => setEmailOtp(e.target.value)}
                   required
+                  className="w-full text-center text-3xl font-medium tracking-[0.2em] border-0 border-b-2 border-[#00a884] rounded-none px-0 py-4 shadow-none focus-visible:ring-0 bg-transparent text-[#111b21]"
                 />
+                <p className="text-[14px] text-[#54656f] text-center">
+                    Enter 8-digit code
+                </p>
               </div>
-               <p className="text-xs text-slate-500 pt-1">We will send a verification PIN to this address.</p>
-            </div>
-             <div className="flex space-x-2 pt-2">
-                <Button type="button" variant="outline" size="icon" disabled={loading} onClick={() => goBack('profile')}>
-                    <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <Button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700" disabled={loading}>
-                    {loading ? 'Sending Code...' : 'Send Verification Email'}
-                </Button>
-            </div>
-          </form>
-        )}
-
-        {/* --- STEP 4: FINAL Verification (Email OTP) --- */}
-        {step === 'otp' && (
-          <form onSubmit={verifyAndCompleteAuth} className="space-y-4">
-            <div className="space-y-2 text-center">
-              <Label htmlFor="emailOtp" className="block pb-2">6-Digit Email PIN</Label>
-              <Input
-                id="emailOtp"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                placeholder="123456"
-                value={emailOtp}
-                onChange={(e) => setEmailOtp(e.target.value)}
-                required
-                // Styled to emphasize numeric nature with wide spacing
-                className="text-center text-3xl font-mono tracking-[1em] focus:tracking-[1em] border-2 border-indigo-200 focus:border-indigo-600 h-16 rounded-xl"
-              />
-            </div>
-            
-            <div className="flex space-x-2 pt-2">
-                <Button type="button" variant="outline" size="icon" disabled={loading} onClick={() => goBack('email_input')}>
-                    <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <Button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700" disabled={loading}>
-                    {loading ? 'Verifying...' : 'Complete Sign Up'}
-                </Button>
-            </div>
-            
-            <p className="text-xs text-slate-500 text-center mt-3 pt-2">
-                Didn't receive the email? Check your spam or 
-                <button type="button" onClick={submitEmailAndSendOtp} disabled={loading} className="text-indigo-600 hover:underline ml-1">
-                    resend a new code.
+              
+              <div className="mt-12 flex flex-col items-center gap-6">
+                <div className="flex items-center justify-between w-full">
+                    <Button type="button" variant="ghost" size="icon" disabled={loading} onClick={() => goBack('email_input')} className="text-[#54656f] hover:bg-[#f0f2f5] rounded-full">
+                        <ArrowLeft className="h-6 w-6" />
+                    </Button>
+                    <Button type="submit" className="px-8 rounded-full bg-[#00a884] hover:bg-[#058b6e] text-white font-medium py-6 text-base shadow-sm" disabled={loading}>
+                        {loading ? 'Verifying...' : mode === 'login' ? 'Log In' : 'Done'}
+                    </Button>
+                </div>
+                <button type="button" onClick={submitEmailAndSendOtp} disabled={loading} className="text-[15px] text-[#00a884] hover:underline font-medium">
+                    Didn't receive code?
                 </button>
-            </p>
-          </form>
-        )}
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
