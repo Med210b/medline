@@ -4,19 +4,19 @@ import { supabase } from '@/src/lib/supabase';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
-import { Mail, User, ArrowLeft } from 'lucide-react';
+import { Mail, User, ArrowLeft, Lock } from 'lucide-react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css'; 
 
-type AuthStep = 'phone' | 'profile' | 'email_input' | 'otp';
+type AuthStep = 'phone' | 'profile' | 'credentials' | 'otp';
 type AuthMode = 'signup' | 'login';
 
 export default function Auth() {
   const navigate = useNavigate();
   
   // 1. Core State
-  const [mode, setMode] = useState<AuthMode>('signup');
-  const [step, setStep] = useState<AuthStep>('phone');
+  const [mode, setMode] = useState<AuthMode>('login'); // Default to login to make it faster for returning users
+  const [step, setStep] = useState<AuthStep>('credentials');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +26,7 @@ export default function Auth() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string>('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [emailOtp, setEmailOtp] = useState('');
 
   // 3. UI Helpers
@@ -36,14 +37,16 @@ export default function Auth() {
 
   const switchToLogin = () => {
     setMode('login');
-    setStep('email_input');
+    setStep('credentials');
     setError(null);
+    setPassword('');
   }
 
   const switchToSignup = () => {
     setMode('signup');
     setStep('phone');
     setError(null);
+    setPassword('');
   }
 
   const handleAvatarSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -72,13 +75,14 @@ export default function Auth() {
       return;
     }
     setError(null);
-    setStep('email_input');
+    setStep('credentials');
   };
 
-  const submitEmailAndSendOtp = async (e: React.FormEvent) => {
+  // SIGN UP: Creates account and triggers the OTP email
+  const submitSignupCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      setError("Please enter a valid email.");
+    if (!email || password.length < 6) {
+      setError("Please enter a valid email and a password (at least 6 characters).");
       return;
     }
     
@@ -86,17 +90,58 @@ export default function Auth() {
     setError(null);
     
     try {
-      const { error: otpError } = await supabase.auth.signInWithOtp({ email });
-      if (otpError) throw otpError;
+      // Create the user with email and password
+      const { error: signUpError } = await supabase.auth.signUp({ 
+        email, 
+        password 
+      });
+      if (signUpError) throw signUpError;
+      
+      // Move to OTP to verify their email
       setStep('otp');
     } catch (err: any) {
-      setError(err.message || "Failed to send verification email. Please check your address.");
+      setError(err.message || "Failed to create account. Email may already be in use.");
     } finally {
       setLoading(false);
     }
   };
 
-  const verifyAndCompleteAuth = async (e: React.FormEvent) => {
+  // LOG IN: Directly logs in existing users using Email + Password (NO OTP)
+  const submitLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Sign in directly!
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError || !data.user) throw signInError || new Error("Login failed.");
+
+      // Update their online status
+      await supabase.from('users').update({
+        is_online: true,
+        last_seen: new Date().toISOString()
+      }).eq('id', data.user.id);
+      
+      navigate('/chat');
+    } catch (err: any) {
+      setError("Invalid email or password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // FINAL VERIFICATION (Only for Sign Up)
+  const verifySignupOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (emailOtp.length !== 8) {
@@ -107,32 +152,16 @@ export default function Auth() {
     setLoading(true);
     setError(null);
     try {
+      // Verify the signup OTP
       const { data: { user: authUser }, error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: emailOtp,
-        type: 'email',
+        type: 'signup', // Important: Type is 'signup' because we used signUp()
       });
       
       if (verifyError || !authUser) throw verifyError || new Error("Auth failed.");
 
-      const { data: existingProfile } = await supabase.from('users').select('name').eq('id', authUser.id).maybeSingle();
-
-      if (existingProfile && existingProfile.name) {
-        await supabase.from('users').update({
-          is_online: true,
-          last_seen: new Date().toISOString()
-        }).eq('id', authUser.id);
-        
-        navigate('/chat');
-        return; 
-      }
-
-      if (mode === 'login' || !name || !phone) {
-          setError("Account not found. Please click 'Sign Up' to create a new profile.");
-          await supabase.auth.signOut();
-          return;
-      }
-
+      // Upload avatar
       let uploadedAvatarUrl = '';
       if (avatarFile) {
         const fileExt = avatarFile.name.split('.').pop();
@@ -145,6 +174,7 @@ export default function Auth() {
         }
       }
 
+      // Save new profile
       const updates = {
         id: authUser.id,
         name,
@@ -160,7 +190,7 @@ export default function Auth() {
       
       navigate('/chat');
     } catch (err: any) {
-      setError(err.message || 'Invalid code. Please try again or resend a new PIN.');
+      setError(err.message || 'Invalid code. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -173,14 +203,14 @@ export default function Auth() {
         {/* Header Section */}
         <div className="mb-8 text-center pt-8 sm:pt-0">
           <h1 className="text-2xl font-semibold text-[#111b21] mb-2 tracking-tight">
-            {step === 'profile' ? 'Profile info' : mode === 'login' ? 'Log in to MedLine' : 'Verify your number'}
+            {mode === 'login' ? 'Log in to MedLine' : step === 'profile' ? 'Profile info' : step === 'credentials' ? 'Create Password' : 'Verify your number'}
           </h1>
           <p className="text-[15px] leading-relaxed text-[#54656f]">
-            {mode === 'login' && step === 'email_input' && "Enter your email address to log back into your account."}
-            {mode === 'signup' && step === 'phone' && "MedLine will send a verification code to this number."}
-            {step === 'profile' && "Please provide your name and an optional profile photo."}
-            {mode === 'signup' && step === 'email_input' && "Add an email address for extra account security."}
-            {step === 'otp' && `Waiting to automatically detect the 8-digit code sent to ${email}.`}
+            {mode === 'login' && step === 'credentials' && "Enter your email and password to log in."}
+            {mode === 'signup' && step === 'phone' && "MedLine will send a verification code to your email later."}
+            {mode === 'signup' && step === 'profile' && "Please provide your name and an optional profile photo."}
+            {mode === 'signup' && step === 'credentials' && "Add an email and password for account security."}
+            {mode === 'signup' && step === 'otp' && `Waiting to automatically detect the 8-digit code sent to ${email}.`}
           </p>
         </div>
 
@@ -265,10 +295,10 @@ export default function Auth() {
             </form>
           )}
 
-          {/* --- STEP 3: EMAIL INPUT (Both Modes) --- */}
-          {step === 'email_input' && (
-            <form onSubmit={submitEmailAndSendOtp} className="flex flex-col h-full">
-              <div className="space-y-4 mb-auto">
+          {/* --- STEP 3: CREDENTIALS (Email & Password - Both Modes) --- */}
+          {step === 'credentials' && (
+            <form onSubmit={mode === 'signup' ? submitSignupCredentials : submitLogin} className="flex flex-col h-full">
+              <div className="space-y-6 mb-auto">
                 <div className="relative flex items-center border-b-2 border-[#00a884] py-2">
                   <Mail className="h-5 w-5 text-[#8696a0] mr-3" />
                   <Input
@@ -277,6 +307,19 @@ export default function Auth() {
                     placeholder="Email address"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    className="border-0 p-0 text-lg shadow-none focus-visible:ring-0 rounded-none bg-transparent w-full"
+                    required
+                  />
+                </div>
+                
+                <div className="relative flex items-center border-b-2 border-[#00a884] py-2">
+                  <Lock className="h-5 w-5 text-[#8696a0] mr-3" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     className="border-0 p-0 text-lg shadow-none focus-visible:ring-0 rounded-none bg-transparent w-full"
                     required
                   />
@@ -290,10 +333,10 @@ export default function Auth() {
                           <ArrowLeft className="h-6 w-6" />
                       </Button>
                     ) : (
-                      <div className="w-10"></div> /* Spacer */
+                      <div className="w-10"></div>
                     )}
                     <Button type="submit" className="px-8 rounded-full bg-[#00a884] hover:bg-[#058b6e] text-white font-medium py-6 text-base shadow-sm" disabled={loading}>
-                        {loading ? 'Sending...' : 'Send PIN'}
+                        {loading ? 'Wait...' : mode === 'login' ? 'Log In' : 'Sign Up'}
                     </Button>
                 </div>
                 {mode === 'login' && (
@@ -305,9 +348,9 @@ export default function Auth() {
             </form>
           )}
 
-          {/* --- STEP 4: FINAL Verification (Email OTP) --- */}
-          {step === 'otp' && (
-            <form onSubmit={verifyAndCompleteAuth} className="flex flex-col h-full">
+          {/* --- STEP 4: FINAL Verification (Sign Up OTP ONLY) --- */}
+          {step === 'otp' && mode === 'signup' && (
+            <form onSubmit={verifySignupOtp} className="flex flex-col h-full">
               <div className="flex flex-col items-center mb-auto space-y-6">
                 <Input
                   id="emailOtp"
@@ -328,16 +371,13 @@ export default function Auth() {
               
               <div className="mt-12 flex flex-col items-center gap-6">
                 <div className="flex items-center justify-between w-full">
-                    <Button type="button" variant="ghost" size="icon" disabled={loading} onClick={() => goBack('email_input')} className="text-[#54656f] hover:bg-[#f0f2f5] rounded-full">
+                    <Button type="button" variant="ghost" size="icon" disabled={loading} onClick={() => goBack('credentials')} className="text-[#54656f] hover:bg-[#f0f2f5] rounded-full">
                         <ArrowLeft className="h-6 w-6" />
                     </Button>
                     <Button type="submit" className="px-8 rounded-full bg-[#00a884] hover:bg-[#058b6e] text-white font-medium py-6 text-base shadow-sm" disabled={loading}>
-                        {loading ? 'Verifying...' : mode === 'login' ? 'Log In' : 'Done'}
+                        {loading ? 'Verifying...' : 'Done'}
                     </Button>
                 </div>
-                <button type="button" onClick={submitEmailAndSendOtp} disabled={loading} className="text-[15px] text-[#00a884] hover:underline font-medium">
-                    Didn't receive code?
-                </button>
               </div>
             </form>
           )}
