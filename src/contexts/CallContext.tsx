@@ -10,6 +10,7 @@ interface CallContextType {
   remoteStream: MediaStream | null;
   localStream: MediaStream | null;
   isVideo: boolean;
+  isCaller: boolean;
   initiateCall: (receiverId: string, isVideo: boolean) => void;
   answerCall: () => void;
   rejectCall: () => void;
@@ -26,6 +27,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isVideo, setIsVideo] = useState(false);
+  const [isCaller, setIsCaller] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -52,6 +54,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const initiateCall = async (receiverId: string, video: boolean) => {
     if (!peer) return;
     setIsVideo(video);
+    setIsCaller(true);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -83,6 +86,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       (window as any).ringtoneAudio.pause();
       (window as any).ringtoneAudio = null;
     }
+
+    setIsCaller(false);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -137,7 +142,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <CallContext.Provider value={{ peer, incomingCall, currentCall, remoteStream, localStream, isVideo, initiateCall, answerCall, rejectCall, endCall }}>
+    <CallContext.Provider value={{ peer, incomingCall, currentCall, remoteStream, localStream, isVideo, isCaller, initiateCall, answerCall, rejectCall, endCall }}>
       {children}
     </CallContext.Provider>
   );

@@ -13,24 +13,27 @@ export default function Auth() {
   const { user } = useAuth();
   const navigate = useNavigate();
   
-  // Phone Auth State
-  const [phone, setPhone] = useState('');
+  // Auth State
+  const [mode, setMode] = useState<'signup' | 'login'>('signup');
+  const [email, setEmail] = useState('');
+  const [emailOtp, setEmailOtp] = useState('');
+  const [emailRegistered, setEmailRegistered] = useState(false);
+  const [emailNotFound, setEmailNotFound] = useState(false);
   
   // Profile State
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string>('');
-  const [emailOtp, setEmailOtp] = useState('');
   
   // UI State
-  const [step, setStep] = useState<'phone' | 'profile' | 'email_pin'>('phone');
+  const [step, setStep] = useState<'email' | 'email_pin' | 'profile'>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Auto-redirect if user is already fully logged in and has a profile
-    if (user && step === 'phone') {
+    if (user && step === 'email') {
       checkProfile();
     }
   }, [user]);
@@ -55,40 +58,49 @@ export default function Auth() {
     }
   };
 
-  const handlePhoneSubmit = async (e: React.FormEvent) => {
+  const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone) return;
+    if (!email) return;
     setLoading(true);
     setError(null);
+    setEmailRegistered(false);
+    setEmailNotFound(false);
     
     try {
-      // 1. Check if phone exists in the database
+      // 1. Check if email exists in the database
       const { data, error: fetchError } = await supabase
         .from('users')
-        .select('email')
-        .eq('phone', phone)
+        .select('id')
+        .eq('email', email)
         .maybeSingle();
         
       if (fetchError && fetchError.code !== 'PGRST116') {
         console.error('Error fetching user:', fetchError);
       }
         
-      if (data && data.email) {
-        // 2. Existing user: Log them in directly using phone as password
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: data.email,
-          password: phone
-        });
-        
-        if (signInError) {
-          throw new Error("Login failed. Please check your credentials or contact support.");
-        } else {
-          navigate('/chat');
+      if (data) {
+        // Email exists
+        if (mode === 'signup') {
+          setEmailRegistered(true);
+          throw new Error("This email is already registered. Please log in with your existing account.");
         }
       } else {
-        // 3. New user: Proceed to profile setup
-        setStep('profile');
+        // Email does not exist
+        if (mode === 'login') {
+          setEmailNotFound(true);
+          throw new Error("Email not found. Please sign up.");
+        }
       }
+
+      // 2. Send OTP
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email,
+      });
+      
+      if (otpError) throw otpError;
+
+      // 3. Proceed to OTP verification
+      setStep('email_pin');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -133,52 +145,35 @@ export default function Auth() {
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !name) return;
+    if (!name || !user) return;
     
     try {
       setLoading(true);
       setError(null);
       
-      // Sign up the user. This triggers the Supabase confirmation email.
-      const { data, error } = await supabase.auth.signUp({ 
-        email, 
-        password: phone 
-      });
+      // Upload avatar now that user is authenticated
+      const uploadedAvatarUrl = await performAvatarUpload(user.id);
       
-      if (error) {
-        if (error.message.includes('already registered')) {
-          throw new Error("This email is already registered. If you already have an account, please use the correct phone number to log in.");
+      // Update public.users table
+      const updates = {
+        id: user.id,
+        name,
+        avatar_url: uploadedAvatarUrl || '',
+        phone: phone,
+        email: email,
+        is_online: true,
+        last_seen: new Date().toISOString(),
+      };
+      
+      const { error: dbError } = await supabase.from('users').upsert(updates);
+      if (dbError) {
+        if (dbError.message.includes('row-level security')) {
+          throw new Error("Database permission denied. Please run the RLS SQL snippet in your Supabase dashboard.");
         }
-        throw error;
+        throw dbError;
       }
       
-      if (data.session) {
-        // Auto-confirmed (e.g. email confirmation disabled in Supabase)
-        const uploadedAvatarUrl = await performAvatarUpload(data.user!.id);
-        
-        const updates = {
-          id: data.user!.id,
-          name,
-          avatar_url: uploadedAvatarUrl || '',
-          phone: phone,
-          email: email,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-        };
-        
-        const { error: dbError } = await supabase.from('users').upsert(updates);
-        if (dbError) {
-          console.error("DB Error:", dbError);
-          if (dbError.message.includes('row-level security')) {
-            throw new Error("Database permission denied. Please run the RLS SQL snippet in your Supabase dashboard.");
-          }
-          throw dbError;
-        }
-        navigate('/chat');
-      } else {
-        // Needs email confirmation via 6-digit OTP
-        setStep('email_pin');
-      }
+      navigate('/chat');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -190,8 +185,7 @@ export default function Auth() {
     try {
       setLoading(true);
       setError(null);
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
+      const { error } = await supabase.auth.signInWithOtp({
         email: email,
       });
       if (error) throw error;
@@ -212,34 +206,16 @@ export default function Auth() {
       const { data, error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: emailOtp,
-        type: 'signup',
+        type: 'email',
       });
       if (verifyError) throw verifyError;
       
       if (data.user) {
-        // Upload avatar now that user is authenticated
-        const uploadedAvatarUrl = await performAvatarUpload(data.user.id);
-        
-        // Update public.users table
-        const updates = {
-          id: data.user.id,
-          name,
-          avatar_url: uploadedAvatarUrl || '',
-          phone: phone,
-          email: email,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-        };
-        
-        const { error: dbError } = await supabase.from('users').upsert(updates);
-        if (dbError) {
-          if (dbError.message.includes('row-level security')) {
-            throw new Error("Database permission denied. Please run the RLS SQL snippet in your Supabase dashboard.");
-          }
-          throw dbError;
+        if (mode === 'login') {
+          navigate('/chat');
+        } else {
+          setStep('profile');
         }
-        
-        navigate('/chat');
       }
     } catch (err: any) {
       setError(err.message || 'Invalid Email PIN');
@@ -253,18 +229,14 @@ export default function Auth() {
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            {step === 'profile' || step === 'email_pin' ? 'Complete Profile' : 'MedLine'}
+            {step === 'profile' ? 'Complete Profile' : 'MedLine'}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            {step === 'phone' && 'Enter your phone number to continue'}
+            {step === 'email' && (mode === 'signup' ? 'Enter your email to sign up' : 'Enter your email to log in')}
             {step === 'profile' && 'Set up your MedLine profile details'}
             {step === 'email_pin' && (
               <>
                 Enter the 6-digit PIN sent to your email
-                <br />
-                <span className="text-xs text-slate-400">
-                  (Dev Note: Ensure your Supabase "Confirm signup" email template uses {'{{ .Token }}'} instead of {'{{ .ConfirmationURL }}'})
-                </span>
               </>
             )}
           </p>
@@ -276,24 +248,65 @@ export default function Auth() {
           </div>
         )}
 
-        {step === 'phone' && (
-          <form onSubmit={handlePhoneSubmit} className="space-y-4">
+        {step === 'email' && (
+          <form onSubmit={handleEmailSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number</Label>
-              <PhoneInput
-                id="phone"
-                international
-                defaultCountry="US"
-                placeholder="Enter phone number"
-                value={phone}
-                onChange={(value) => setPhone(value || '')}
-                inputComponent={Input}
-                className="flex w-full"
+              <Label htmlFor="email">Email Address</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Checking...' : 'Continue'}
             </Button>
+            
+            {emailRegistered && (
+              <Button
+                type="button"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                onClick={() => {
+                  setMode('login');
+                  setEmailRegistered(false);
+                  setError(null);
+                }}
+              >
+                Log In Instead
+              </Button>
+            )}
+            
+            {emailNotFound && (
+              <Button
+                type="button"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                onClick={() => {
+                  setMode('signup');
+                  setEmailNotFound(false);
+                  setError(null);
+                }}
+              >
+                Sign Up Instead
+              </Button>
+            )}
+
+            <div className="text-center mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode(mode === 'signup' ? 'login' : 'signup');
+                  setError(null);
+                  setEmailRegistered(false);
+                  setEmailNotFound(false);
+                }}
+                className="text-sm text-indigo-600 hover:text-indigo-500"
+              >
+                {mode === 'signup' ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+              </button>
+            </div>
           </form>
         )}
 
@@ -334,29 +347,22 @@ export default function Auth() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
+                <Label htmlFor="phone">Phone Number</Label>
+                <PhoneInput
+                  id="phone"
+                  international
+                  defaultCountry="US"
+                  placeholder="Enter phone number"
+                  value={phone}
+                  onChange={(value) => setPhone(value || '')}
+                  inputComponent={Input}
+                  className="flex w-full"
                 />
               </div>
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Processing...' : 'Send Email OTP'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full text-slate-500"
-              onClick={() => setStep('phone')}
-              disabled={loading}
-            >
-              Back
+              {loading ? 'Saving...' : 'Complete Profile'}
             </Button>
           </form>
         )}
@@ -377,6 +383,9 @@ export default function Auth() {
                 required
                 className="text-center text-2xl tracking-widest"
               />
+              <p className="text-xs text-slate-500 text-center mt-2">
+                Check your spam folder if you don't see it.
+              </p>
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Verifying...' : 'Verify Email'}
@@ -394,7 +403,7 @@ export default function Auth() {
               type="button"
               variant="ghost"
               className="w-full text-slate-500"
-              onClick={() => setStep('profile')}
+              onClick={() => setStep('email')}
               disabled={loading}
             >
               Back

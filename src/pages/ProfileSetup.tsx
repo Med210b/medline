@@ -6,17 +6,17 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import { Camera } from 'lucide-react';
+import PhoneInput from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 
 export default function ProfileSetup() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [step, setStep] = useState<'profile' | 'email_otp'>('profile');
-  const [emailOtp, setEmailOtp] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -29,7 +29,7 @@ export default function ProfileSetup() {
       setLoading(true);
       const { data, error, status } = await supabase
         .from('users')
-        .select(`name, avatar_url`)
+        .select(`name, avatar_url, phone`)
         .eq('id', user?.id)
         .single();
 
@@ -40,9 +40,8 @@ export default function ProfileSetup() {
       if (data) {
         setName(data.name || '');
         setAvatarUrl(data.avatar_url || '');
-        if (user?.email) {
-          setEmail(user.email);
-        }
+        setPhone(data.phone || '');
+        
         if (data.name && user?.email) {
           navigate('/chat');
         }
@@ -62,8 +61,8 @@ export default function ProfileSetup() {
         id: user?.id,
         name,
         avatar_url: avatarUrl,
-        phone: user?.phone,
-        email: email,
+        phone: phone,
+        email: user?.email,
         is_online: true,
         last_seen: new Date().toISOString(),
       };
@@ -72,13 +71,7 @@ export default function ProfileSetup() {
 
       if (error) throw error;
       
-      if (email && email !== user?.email) {
-        const { error: updateError } = await supabase.auth.updateUser({ email });
-        if (updateError) throw updateError;
-        setStep('email_otp');
-      } else {
-        navigate('/chat');
-      }
+      navigate('/chat');
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -115,122 +108,74 @@ export default function ProfileSetup() {
     }
   }
 
-  async function verifyEmailOtp(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      setLoading(true);
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: emailOtp,
-        type: 'email_change',
-      });
-      if (error) throw error;
-      navigate('/chat');
-    } catch (error: any) {
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            {step === 'profile' ? 'Complete Profile' : 'Verify Email'}
+            Complete Profile
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            {step === 'profile' ? 'Set up your MedLine profile' : 'Enter the 6-digit PIN sent to your email'}
+            Set up your MedLine profile details
           </p>
         </div>
 
-        {step === 'profile' ? (
-          <form onSubmit={updateProfile} className="space-y-6">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="relative h-24 w-24 overflow-hidden rounded-full bg-slate-100">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-slate-400">
-                    <Camera size={32} />
-                  </div>
-                )}
-                <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 opacity-0 transition-opacity hover:opacity-100">
-                  <span className="text-xs text-white">Upload</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={uploadAvatar}
-                    disabled={uploading}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              {uploading && <p className="text-xs text-slate-500">Uploading...</p>}
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Display Name</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
+        <form onSubmit={updateProfile} className="space-y-6">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="relative h-24 w-24 overflow-hidden rounded-full bg-slate-100">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-slate-400">
+                  <Camera size={32} />
+                </div>
+              )}
+              <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/50 opacity-0 transition-opacity hover:opacity-100">
+                <span className="text-xs text-white">Upload</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={uploadAvatar}
+                  disabled={uploading}
+                  className="hidden"
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
+              </label>
             </div>
+            {uploading && <p className="text-xs text-slate-500">Uploading...</p>}
+          </div>
 
-            <Button type="submit" className="w-full" disabled={loading || uploading}>
-              {loading ? 'Saving...' : 'Continue'}
-            </Button>
-          </form>
-        ) : (
-          <form onSubmit={verifyEmailOtp} className="space-y-4">
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="emailOtp">6-Digit PIN</Label>
+              <Label htmlFor="name">Display Name</Label>
               <Input
-                id="emailOtp"
+                id="name"
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                placeholder="123456"
-                value={emailOtp}
-                onChange={(e) => setEmailOtp(e.target.value)}
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 required
-                className="text-center text-2xl tracking-widest"
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Verifying...' : 'Verify Email'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full text-slate-500"
-              onClick={() => setStep('profile')}
-              disabled={loading}
-            >
-              Back
-            </Button>
-          </form>
-        )}
+
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number</Label>
+              <PhoneInput
+                id="phone"
+                international
+                defaultCountry="US"
+                placeholder="Enter phone number"
+                value={phone}
+                onChange={(value) => setPhone(value || '')}
+                inputComponent={Input}
+                className="flex w-full"
+              />
+            </div>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading || uploading}>
+            {loading ? 'Saving...' : 'Complete Profile'}
+          </Button>
+        </form>
       </div>
     </div>
   );

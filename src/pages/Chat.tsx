@@ -5,25 +5,69 @@ import { useCall } from '@/src/contexts/CallContext';
 import { supabase } from '@/src/lib/supabase';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
-import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff } from 'lucide-react';
+import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search } from 'lucide-react';
 import { format } from 'date-fns';
+import { playNotificationSound, showNotification } from '@/src/hooks/useNotifications';
 
 export default function Chat() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const { initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, localStream, remoteStream, isVideo } = useCall();
+  const { initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, localStream, remoteStream, isVideo, isCaller } = useCall();
   
+  const [activeTab, setActiveTab] = useState<'chats' | 'calls'>('chats');
+  const [callHistory, setCallHistory] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [activeConversation, setActiveConversation] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [users, setUsers] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const usersRef = useRef<any[]>([]);
+  
+  useEffect(() => {
+    usersRef.current = users;
+  }, [users]);
+
   const [loading, setLoading] = useState(true);
   
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [showEndCallConfirm, setShowEndCallConfirm] = useState(false);
+  
+  const callDurationRef = useRef(0);
+  const previousCallRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (currentCall) {
+      previousCallRef.current = currentCall;
+    } else if (previousCallRef.current) {
+      // Call ended
+      if (isCaller && user) {
+        const duration = callDurationRef.current;
+        const isVideoCall = isVideo;
+        const peerId = previousCallRef.current.peer;
+        
+        const conversationId = `conv-${[user.id, peerId].sort().join('-')}`;
+        
+        const msg = {
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content: JSON.stringify({ type: isVideoCall ? 'video' : 'voice', duration }),
+          type: 'call',
+          status: duration > 0 ? 'ended' : 'missed',
+          timestamp: new Date().toISOString()
+        };
+        
+        supabase.from('messages').insert([msg]).then();
+      }
+      previousCallRef.current = null;
+      callDurationRef.current = 0;
+    }
+  }, [currentCall, isCaller, user, isVideo]);
   
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
@@ -85,6 +129,7 @@ export default function Chat() {
   useEffect(() => {
     fetchUsers();
     fetchConversations();
+    fetchCallHistory();
     
     setRemoteTyping(false);
     if (remoteTypingTimeoutRef.current) clearTimeout(remoteTypingTimeoutRef.current);
@@ -93,6 +138,22 @@ export default function Chat() {
     const messageSubscription = supabase
       .channel('public:messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+        if (payload.new.type === 'group_created' && payload.new.content.includes(user?.id || '')) {
+          fetchConversations();
+        }
+
+        if (payload.new.sender_id !== user?.id && payload.new.type !== 'group_created') {
+          playNotificationSound();
+          
+          // Find sender name for notification
+          const sender = usersRef.current.find(u => u.id === payload.new.sender_id);
+          const senderName = sender?.name || sender?.phone || 'Someone';
+          
+          if (document.visibilityState !== 'visible') {
+            showNotification(`New message from ${senderName}`, payload.new.content || 'Sent an attachment');
+          }
+        }
+
         if (payload.new.conversation_id === activeConversation?.id) {
           setMessages(prev => [...prev, payload.new]);
           scrollToBottom();
@@ -107,6 +168,10 @@ export default function Chat() {
         } else if (payload.new.sender_id !== user?.id) {
           supabase.from('messages').update({ status: 'delivered' }).eq('id', payload.new.id).then();
         }
+
+        if (payload.new.type === 'call') {
+          fetchCallHistory();
+        }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, payload => {
         if (payload.new.conversation_id === activeConversation?.id) {
@@ -117,8 +182,11 @@ export default function Chat() {
 
     // Setup broadcast channel for typing indicators
     let typingChannel: any = null;
-    if (user?.id && activeConversation?.user?.id) {
-      const channelName = `typing:${[user.id, activeConversation.user.id].sort().join('-')}`;
+    if (user?.id && activeConversation) {
+      const channelName = activeConversation.isGroup 
+        ? `typing:${activeConversation.id}`
+        : `typing:${[user.id, activeConversation.user.id].sort().join('-')}`;
+      
       typingChannel = supabase.channel(channelName)
         .on('broadcast', { event: 'typing_start' }, (payload) => {
           if (payload.payload.user_id !== user.id) {
@@ -222,9 +290,42 @@ export default function Chat() {
   };
 
   const fetchConversations = async () => {
-    // In a real app, you'd fetch conversations where the user is a participant
-    // For simplicity, we'll just list users and create a conversation on the fly
+    if (!user) return;
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('type', 'group_created')
+      .ilike('content', `%${user.id}%`);
+    
+    if (data) {
+      const parsedGroups = data.map(msg => {
+        try {
+          const content = JSON.parse(msg.content);
+          return {
+            id: msg.conversation_id,
+            name: content.name,
+            participants: content.participants,
+            isGroup: true
+          };
+        } catch (e) {
+          return null;
+        }
+      }).filter(Boolean);
+      setConversations(parsedGroups);
+    }
     setLoading(false);
+  };
+
+  const fetchCallHistory = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('type', 'call')
+      .ilike('conversation_id', `%${user.id}%`)
+      .order('timestamp', { ascending: false });
+    
+    if (data) setCallHistory(data);
   };
 
   const fetchMessages = async (conversationId: string) => {
@@ -239,15 +340,40 @@ export default function Chat() {
   };
 
   const startConversation = async (otherUser: any) => {
-    // Check if conversation exists
-    const { data: existing } = await supabase
-      .from('participants')
-      .select('conversation_id')
-      .eq('user_id', user?.id);
-      
-    // Simplified logic: just set active user
-    setActiveConversation({ id: `conv-${otherUser.id}`, user: otherUser });
-    fetchMessages(`conv-${otherUser.id}`);
+    const conversationId = `conv-${[user?.id, otherUser.id].sort().join('-')}`;
+    setActiveConversation({ id: conversationId, user: otherUser });
+    fetchMessages(conversationId);
+  };
+
+  const startGroupConversation = async (group: any) => {
+    setActiveConversation({ id: group.id, isGroup: true, name: group.name, participants: group.participants });
+    fetchMessages(group.id);
+  };
+
+  const createGroup = async () => {
+    if (!newGroupName.trim() || selectedUsers.length === 0 || !user) return;
+    
+    const groupId = `group-${crypto.randomUUID()}`;
+    const participants = [user.id, ...selectedUsers];
+    
+    const msg = {
+      conversation_id: groupId,
+      sender_id: user.id,
+      content: JSON.stringify({ name: newGroupName.trim(), participants }),
+      type: 'group_created',
+      status: 'sent',
+      timestamp: new Date().toISOString()
+    };
+    
+    await supabase.from('messages').insert([msg]);
+    
+    setShowCreateGroup(false);
+    setNewGroupName('');
+    setSelectedUsers([]);
+    
+    const newGroup = { id: groupId, name: newGroupName.trim(), participants, isGroup: true };
+    setConversations(prev => [...prev, newGroup]);
+    startGroupConversation(newGroup);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,24 +411,29 @@ export default function Chat() {
 
     if (!activeConversation || !channelRef.current) return;
 
+    // Only send if channel is joined
+    if (channelRef.current.state !== 'joined') return;
+
     if (!isTyping) {
       setIsTyping(true);
       channelRef.current.send({
         type: 'broadcast',
         event: 'typing_start',
         payload: { user_id: user?.id }
-      });
+      }).catch(() => {});
     }
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     
     typingTimeoutRef.current = setTimeout(() => {
       setIsTyping(false);
-      channelRef.current?.send({
-        type: 'broadcast',
-        event: 'typing_stop',
-        payload: { user_id: user?.id }
-      });
+      if (channelRef.current?.state === 'joined') {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'typing_stop',
+          payload: { user_id: user?.id }
+        }).catch(() => {});
+      }
     }, 2000);
   };
 
@@ -324,11 +455,13 @@ export default function Chat() {
     if (isTyping && channelRef.current) {
       setIsTyping(false);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'typing_stop',
-        payload: { user_id: user?.id }
-      });
+      if (channelRef.current.state === 'joined') {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'typing_stop',
+          payload: { user_id: user?.id }
+        }).catch(() => {});
+      }
     }
 
     await supabase.from('messages').insert([msg]);
@@ -338,7 +471,11 @@ export default function Chat() {
     let interval: NodeJS.Timeout;
     if (currentCall && remoteStream) {
       interval = setInterval(() => {
-        setCallDuration(prev => prev + 1);
+        setCallDuration(prev => {
+          const newDuration = prev + 1;
+          callDurationRef.current = newDuration;
+          return newDuration;
+        });
       }, 1000);
     } else if (!currentCall) {
       setCallDuration(0);
@@ -367,13 +504,40 @@ export default function Chat() {
     }
   };
 
-  const toggleVideo = () => {
-    if (localStream) {
-      const newVideoOffState = !isVideoOff;
+  const toggleVideo = async () => {
+    if (!localStream || !currentCall) return;
+
+    if (!isVideoOff) {
+      // Turn off camera hardware
       localStream.getVideoTracks().forEach(track => {
-        track.enabled = !newVideoOffState;
+        track.stop();
+        localStream.removeTrack(track);
       });
-      setIsVideoOff(newVideoOffState);
+      setIsVideoOff(true);
+    } else {
+      // Turn on camera hardware
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        
+        localStream.addTrack(newVideoTrack);
+        
+        // Replace track in the peer connection
+        const sender = currentCall.peerConnection?.getSenders().find((s: any) => s.track?.kind === 'video' || s.track === null);
+        if (sender) {
+          sender.replaceTrack(newVideoTrack);
+        } else if (currentCall.peerConnection) {
+          currentCall.peerConnection.addTrack(newVideoTrack, localStream);
+        }
+        
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStream;
+        }
+        
+        setIsVideoOff(false);
+      } catch (err) {
+        console.error('Failed to restart camera', err);
+      }
     }
   };
 
@@ -451,17 +615,17 @@ export default function Chat() {
               </div>
             )}
             
-            <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 space-x-6">
-              <Button onClick={toggleMute} className={`h-16 w-16 rounded-full ${isMuted ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-600 hover:bg-slate-500'}`}>
-                {isMuted ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
+            <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 space-x-6 z-10">
+              <Button onClick={toggleMute} className={`h-16 w-16 rounded-full transition-colors ${isMuted ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                {isMuted ? <MicOff className="h-8 w-8 text-white" /> : <Mic className="h-8 w-8 text-white" />}
               </Button>
               {isVideo && (
-                <Button onClick={toggleVideo} className={`h-16 w-16 rounded-full ${isVideoOff ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-600 hover:bg-slate-500'}`}>
-                  {isVideoOff ? <VideoOff className="h-8 w-8" /> : <Video className="h-8 w-8" />}
+                <Button onClick={toggleVideo} className={`h-16 w-16 rounded-full transition-colors ${isVideoOff ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                  {isVideoOff ? <VideoOff className="h-8 w-8 text-white" /> : <Video className="h-8 w-8 text-white" />}
                 </Button>
               )}
               <Button onClick={() => setShowEndCallConfirm(true)} className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600">
-                <Phone className="h-8 w-8 rotate-[135deg]" />
+                <Phone className="h-8 w-8 rotate-[135deg] text-white" />
               </Button>
             </div>
 
@@ -497,42 +661,209 @@ export default function Chat() {
     );
   }
 
+  const filteredUsers = users.filter(u => {
+    const query = searchQuery.toLowerCase();
+    const nameMatch = u.name?.toLowerCase().includes(query);
+    const phoneMatch = u.phone?.toLowerCase().includes(query);
+    return nameMatch || phoneMatch;
+  });
+
   return (
     <div className="flex h-screen bg-slate-50">
       {/* Sidebar */}
       <div className="w-80 border-r border-slate-200 bg-white flex flex-col">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <h1 className="text-xl font-bold text-slate-900">MedLine</h1>
-          <Button variant="ghost" size="icon" onClick={signOut} className="h-8 w-8">
-            <LogOut className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center space-x-1">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/settings')} className="h-8 w-8">
+              <Settings className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={signOut} className="h-8 w-8">
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        
+        <div className="p-3 border-b border-slate-200">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input 
+              placeholder="Search contacts..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
+            />
+          </div>
+        </div>
+
+        <div className="flex border-b border-slate-200">
+          <button
+            className={`flex-1 py-3 text-sm font-medium ${activeTab === 'chats' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            onClick={() => setActiveTab('chats')}
+          >
+            Chats
+          </button>
+          <button
+            className={`flex-1 py-3 text-sm font-medium ${activeTab === 'calls' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+            onClick={() => setActiveTab('calls')}
+          >
+            Calls
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto">
-          {users.map(u => (
-            <div 
-              key={u.id} 
-              onClick={() => startConversation(u)}
-              className={`flex cursor-pointer items-center p-4 hover:bg-slate-50 ${activeConversation?.user?.id === u.id ? 'bg-slate-100' : ''}`}
-            >
-              <div className="relative h-12 w-12 shrink-0">
-                <div className="h-full w-full overflow-hidden rounded-full bg-slate-200">
-                  {u.avatar_url ? (
-                    <img src={u.avatar_url} alt={u.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <UserIcon className="h-full w-full p-2 text-slate-400" />
-                  )}
+          {activeTab === 'chats' ? (
+            <>
+              <div className="p-2 border-b border-slate-100">
+                <Button variant="outline" className="w-full text-sm font-medium text-indigo-600 border-indigo-200 hover:bg-indigo-50" onClick={() => setShowCreateGroup(true)}>
+                  + Create New Group
+                </Button>
+              </div>
+              
+              {conversations.filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase())).map(g => (
+                <div 
+                  key={g.id} 
+                  className={`flex cursor-pointer items-center p-4 hover:bg-slate-50 ${activeConversation?.id === g.id ? 'bg-slate-100' : ''}`}
+                  onClick={() => startGroupConversation(g)}
+                >
+                  <div className="relative h-12 w-12 shrink-0">
+                    <div className="h-full w-full overflow-hidden rounded-full bg-indigo-100 flex items-center justify-center">
+                      <span className="text-indigo-600 font-semibold text-lg">{g.name.charAt(0).toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <div className="ml-4 flex-1">
+                    <h3 className="font-semibold text-slate-900">{g.name}</h3>
+                    <p className="text-sm text-slate-500 truncate">Group • {g.participants.length} members</p>
+                  </div>
                 </div>
-                {u.is_online && (
-                  <div className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500"></div>
-                )}
+              ))}
+
+              {filteredUsers.map(u => (
+              <div 
+                key={u.id} 
+                className={`flex cursor-pointer items-center p-4 hover:bg-slate-50 ${activeConversation?.user?.id === u.id ? 'bg-slate-100' : ''}`}
+              >
+                <div 
+                  className="flex flex-1 items-center"
+                  onClick={() => startConversation(u)}
+                >
+                  <div className="relative h-12 w-12 shrink-0">
+                    <div className="h-full w-full overflow-hidden rounded-full bg-slate-200">
+                      {u.avatar_url ? (
+                        <img src={u.avatar_url} alt={u.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <UserIcon className="h-full w-full p-2 text-slate-400" />
+                      )}
+                    </div>
+                    {u.is_online && (
+                      <div className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500"></div>
+                    )}
+                  </div>
+                  <div className="ml-4 flex-1">
+                    <h3 className="font-semibold text-slate-900">{u.name || u.phone}</h3>
+                    <p className="text-sm text-slate-500 truncate">{u.is_online ? 'Online' : 'Offline'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 ml-2">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      initiateCall(u.id, false);
+                    }}
+                    className="h-8 w-8 text-slate-500 hover:text-green-600 hover:bg-green-50"
+                    title="Voice Call"
+                  >
+                    <Phone className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      initiateCall(u.id, true);
+                    }}
+                    className="h-8 w-8 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                    title="Video Call"
+                  >
+                    <Video className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <div className="ml-4 flex-1">
-                <h3 className="font-semibold text-slate-900">{u.name || u.phone}</h3>
-                <p className="text-sm text-slate-500 truncate">Tap to chat</p>
+              ))}
+              
+              {filteredUsers.length === 0 && conversations.filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+                <div className="p-4 text-center text-sm text-slate-500">
+                  No contacts or groups found
+                </div>
+              )}
+            </>
+          ) : (
+            callHistory.length === 0 ? (
+              <div className="p-4 text-center text-sm text-slate-500">
+                No call history
               </div>
-            </div>
-          ))}
+            ) : (
+              callHistory.map(call => {
+                const otherUserId = call.conversation_id.replace('conv-', '').split('-').find((id: string) => id !== user?.id);
+                const otherUser = users.find(u => u.id === otherUserId);
+                let callData = { type: 'voice', duration: 0 };
+                try {
+                  callData = JSON.parse(call.content);
+                } catch (e) {}
+                
+                const isIncoming = call.sender_id !== user?.id;
+                const isMissed = call.status === 'missed';
+                
+                return (
+                  <div 
+                    key={call.id} 
+                    className="flex items-center p-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => {
+                      if (otherUser) startConversation(otherUser);
+                    }}
+                  >
+                    <div className="relative h-12 w-12 shrink-0">
+                      <div className="h-full w-full overflow-hidden rounded-full bg-slate-200">
+                        {otherUser?.avatar_url ? (
+                          <img src={otherUser.avatar_url} alt={otherUser?.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <UserIcon className="h-full w-full p-2 text-slate-400" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="ml-4 flex-1">
+                      <h3 className={`font-semibold ${isMissed ? 'text-red-500' : 'text-slate-900'}`}>{otherUser?.name || otherUser?.phone || 'Unknown'}</h3>
+                      <div className="flex items-center text-sm text-slate-500 mt-0.5">
+                        {isIncoming ? (
+                          <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-green-500'} rotate-[135deg]`} />
+                        ) : (
+                          <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-blue-500'}`} />
+                        )}
+                        <span>{callData.type === 'video' ? 'Video' : 'Voice'} Call</span>
+                        <span className="mx-1">•</span>
+                        <span>{format(new Date(call.timestamp), 'MMM d, h:mm a')}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 ml-2">
+                       <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (otherUser) initiateCall(otherUser.id, callData.type === 'video');
+                          }}
+                          className="h-8 w-8 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                        >
+                          {callData.type === 'video' ? <Video className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
+                        </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )
+          )}
         </div>
       </div>
 
@@ -544,35 +875,43 @@ export default function Chat() {
             <div className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
               <div className="flex items-center">
                 <div className="relative h-10 w-10 shrink-0">
-                  <div className="h-full w-full overflow-hidden rounded-full bg-slate-200">
-                    {activeConversation.user.avatar_url ? (
+                  <div className={`h-full w-full overflow-hidden rounded-full flex items-center justify-center ${activeConversation.isGroup ? 'bg-indigo-100' : 'bg-slate-200'}`}>
+                    {activeConversation.isGroup ? (
+                      <span className="text-indigo-600 font-semibold text-lg">{activeConversation.name.charAt(0).toUpperCase()}</span>
+                    ) : activeConversation.user?.avatar_url ? (
                       <img src={activeConversation.user.avatar_url} alt={activeConversation.user.name} className="h-full w-full object-cover" />
                     ) : (
                       <UserIcon className="h-full w-full p-2 text-slate-400" />
                     )}
                   </div>
-                  {activeConversation.user.is_online && (
+                  {!activeConversation.isGroup && activeConversation.user?.is_online && (
                     <div className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500"></div>
                   )}
                 </div>
                 <div className="ml-3">
-                  <h2 className="font-semibold text-slate-900">{activeConversation.user.name || activeConversation.user.phone}</h2>
+                  <h2 className="font-semibold text-slate-900">
+                    {activeConversation.isGroup ? activeConversation.name : (activeConversation.user?.name || activeConversation.user?.phone)}
+                  </h2>
                   {remoteTyping ? (
                     <p className="text-xs text-indigo-500 italic">User is typing...</p>
                   ) : (
-                    <p className={`text-xs ${activeConversation.user.is_online ? 'text-green-500' : 'text-slate-400'}`}>
-                      {activeConversation.user.is_online ? 'Online' : 'Offline'}
+                    <p className={`text-xs ${activeConversation.isGroup ? 'text-slate-500' : (activeConversation.user?.is_online ? 'text-green-500' : 'text-slate-400')}`}>
+                      {activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'Online' : 'Offline')}
                     </p>
                   )}
                 </div>
               </div>
               <div className="flex space-x-2">
-                <Button variant="ghost" size="icon" onClick={() => handleCall(false)}>
-                  <Phone className="h-5 w-5 text-slate-600" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => handleCall(true)}>
-                  <Video className="h-5 w-5 text-slate-600" />
-                </Button>
+                {!activeConversation.isGroup && (
+                  <>
+                    <Button variant="ghost" size="icon" onClick={() => handleCall(false)}>
+                      <Phone className="h-5 w-5 text-slate-600" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleCall(true)}>
+                      <Video className="h-5 w-5 text-slate-600" />
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -580,6 +919,23 @@ export default function Chat() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.map((msg, idx) => {
                 const isMe = msg.sender_id === user?.id;
+                
+                if (msg.type === 'group_created') {
+                  let groupName = 'Group';
+                  try {
+                    groupName = JSON.parse(msg.content).name;
+                  } catch (e) {}
+                  return (
+                    <div key={msg.id || idx} className="flex justify-center my-4">
+                      <div className="bg-slate-100 text-slate-500 text-xs px-3 py-1 rounded-full">
+                        {isMe ? 'You' : 'Someone'} created group "{groupName}"
+                      </div>
+                    </div>
+                  );
+                }
+
+                const sender = users.find(u => u.id === msg.sender_id);
+
                 return (
                   <div 
                     key={msg.id || idx} 
@@ -593,12 +949,52 @@ export default function Chat() {
                     data-sender-id={msg.sender_id}
                     data-status={msg.status}
                   >
-                    <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-slate-900 rounded-bl-none shadow-sm'}`}>
-                      {msg.type === 'image' ? (
+                    <div className="flex flex-col max-w-[70%]">
+                      {!isMe && activeConversation.isGroup && (
+                        <span className="text-xs text-slate-500 ml-2 mb-1">{sender?.name || 'User'}</span>
+                      )}
+                      <div className={`rounded-2xl px-4 py-2 ${isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-slate-900 rounded-bl-none shadow-sm'}`}>
+                        {msg.type === 'image' ? (
                         <img src={msg.content} alt="Attachment" className="max-w-full rounded-lg" />
+                      ) : msg.type === 'call' ? (
+                        <div className="flex items-center space-x-3">
+                          <div className={`p-2 rounded-full ${isMe ? 'bg-indigo-500' : 'bg-slate-100'}`}>
+                            {(() => {
+                              try {
+                                const data = JSON.parse(msg.content);
+                                return data.type === 'video' ? <Video className="h-4 w-4" /> : <Phone className="h-4 w-4" />;
+                              } catch (e) {
+                                return <Phone className="h-4 w-4" />;
+                              }
+                            })()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">
+                              {(() => {
+                                try {
+                                  const data = JSON.parse(msg.content);
+                                  return `${data.type === 'video' ? 'Video' : 'Voice'} Call ${msg.status === 'missed' ? 'Missed' : 'Ended'}`;
+                                } catch (e) {
+                                  return 'Call';
+                                }
+                              })()}
+                            </p>
+                            <p className={`text-xs ${isMe ? 'text-indigo-200' : 'text-slate-500'}`}>
+                              {(() => {
+                                try {
+                                  const data = JSON.parse(msg.content);
+                                  return data.duration > 0 ? formatDuration(data.duration) : 'Missed';
+                                } catch (e) {
+                                  return '';
+                                }
+                              })()}
+                            </p>
+                          </div>
+                        </div>
                       ) : (
                         <p>{msg.content}</p>
                       )}
+                      </div> {/* Added missing closing div here */}
                       <div className={`mt-1 flex items-center text-[10px] ${isMe ? 'justify-end text-indigo-200' : 'justify-start text-slate-400'}`}>
                         <span>{format(new Date(msg.timestamp), 'HH:mm')}</span>
                         {isMe && (
@@ -617,6 +1013,18 @@ export default function Chat() {
                   </div>
                 );
               })}
+              {remoteTyping && (
+                <div className="flex justify-start">
+                  <div className="max-w-[70%] rounded-2xl px-4 py-2 bg-white text-slate-500 rounded-bl-none shadow-sm italic text-sm flex items-center space-x-1">
+                    <span>{activeConversation.isGroup ? 'Someone' : (activeConversation.user?.name || 'User')} is typing</span>
+                    <span className="flex space-x-1 ml-1">
+                      <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
+                      <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
+                      <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
+                    </span>
+                  </div>
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
 
@@ -660,6 +1068,73 @@ export default function Chat() {
           </div>
         )}
       </div>
+
+      {/* Create Group Modal */}
+      {showCreateGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">Create New Group</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Group Name</label>
+                <Input 
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  placeholder="Enter group name..."
+                  className="w-full"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Select Participants</label>
+                <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {users.map(u => (
+                    <div key={u.id} className="flex items-center p-3 hover:bg-slate-50 cursor-pointer" onClick={() => {
+                      setSelectedUsers(prev => 
+                        prev.includes(u.id) ? prev.filter(id => id !== u.id) : [...prev, u.id]
+                      );
+                    }}>
+                      <div className="relative h-10 w-10 shrink-0 mr-3">
+                        <div className="h-full w-full overflow-hidden rounded-full bg-slate-200">
+                          {u.avatar_url ? (
+                            <img src={u.avatar_url} alt={u.name} className="h-full w-full object-cover" />
+                          ) : (
+                            <UserIcon className="h-full w-full p-2 text-slate-400" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-slate-900">{u.name}</h3>
+                      </div>
+                      <div className={`h-5 w-5 rounded-full border flex items-center justify-center ${selectedUsers.includes(u.id) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                        {selectedUsers.includes(u.id) && <Check className="h-3 w-3 text-white" />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end space-x-3">
+              <Button variant="ghost" onClick={() => {
+                setShowCreateGroup(false);
+                setNewGroupName('');
+                setSelectedUsers([]);
+              }}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={createGroup}
+                disabled={!newGroupName.trim() || selectedUsers.length === 0}
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                Create Group
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

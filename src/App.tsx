@@ -5,10 +5,11 @@ import { CallProvider } from '@/src/contexts/CallContext';
 import Auth from '@/src/pages/Auth';
 import ProfileSetup from '@/src/pages/ProfileSetup';
 import Chat from '@/src/pages/Chat';
+import Settings from '@/src/pages/Settings';
 import { useNotifications } from '@/src/hooks/useNotifications';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://vydtnkweietlfvjhbdhv.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5ZHRua3dlaWV0bGZ2amhiZGh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MjY4ODIsImV4cCI6MjA4OTUwMjg4Mn0.hJII6DG0BmFgc8i7cE5BLwFheHGSYRb7WrOSbLIz9Zc';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -19,7 +20,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useNotifications();
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <Routes>
         <Route path="/auth" element={<Auth />} />
         <Route
@@ -35,6 +36,14 @@ function AppContent() {
           element={
             <ProtectedRoute>
               <Chat />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
             </ProtectedRoute>
           }
         />
