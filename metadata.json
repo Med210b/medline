@@ -1,0 +1,5 @@
+{
+  "name": "MedLine",
+  "description": "A modern, cross-platform messaging application supporting real-time text, voice/video calls, and media sharing.",
+  "requestFramePermissions": ["camera", "microphone"]
+}
