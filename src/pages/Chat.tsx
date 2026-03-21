@@ -12,7 +12,12 @@ import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 
-const APP_LOGO = 'https://i.postimg.cc/YqT7ff74/unnamed.jpg';
+// Import the ringtone directly from your assets folder!
+import customRingtone from '@/src/assets/Ringtone.mp3';
+
+// NEW LOGO
+const APP_LOGO = 'https://i.postimg.cc/hGWD8Fx8/wkx78803bxrmt0cx25brw9e388-result-0.jpg';
+const CUSTOM_RINGTONE = customRingtone;
 
 const formatChatTime = (dateString: string) => {
   if (!dateString) return '';
@@ -24,10 +29,20 @@ const formatChatTime = (dateString: string) => {
 
 type SidebarView = 'chats' | 'calls' | 'settings' | 'profile' | 'privacy' | 'privacy-last-seen' | 'privacy-profile-photo' | 'theme' | 'notifications' | 'archived';
 
+const FILTER_OPTIONS = [
+  'none',
+  'grayscale(100%)',
+  'sepia(100%)',
+  'invert(100%)',
+  'hue-rotate(90deg)',
+  'hue-rotate(180deg)',
+  'contrast(150%) saturate(120%)'
+];
+
 export default function Chat() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const { initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, localStream, remoteStream, isVideo, isCaller, cycleFilter, filterIndex, FILTER_OPTIONS } = useCall();
+  const { initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, localStream, remoteStream, isVideo, isCaller, cycleFilter, filterIndex, FILTER_OPTIONS: contextFilters } = useCall();
   
   // Main States
   const [sidebarView, setSidebarView] = useState<SidebarView>('chats');
@@ -96,11 +111,13 @@ export default function Chat() {
   useEffect(() => { activeConversationRef.current = activeConversation; }, [activeConversation]);
   useEffect(() => { blockedUsersRef.current = blockedUsers; }, [blockedUsers]);
 
-  // CALL STATES
+  // CALL AUDIO REFS (FIX FOR RINGTONE AUTOPLAY)
+  const incomingAudioRef = useRef<HTMLAudioElement>(null);
+  const outgoingAudioRef = useRef<HTMLAudioElement>(null);
+
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
-  const callDurationRef = useRef(0);
   
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
@@ -109,10 +126,35 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-
   const touchStartX = useRef<number>(0);
 
-  // AUDIO & NOTIFICATION HANDLERS
+  // HTML Audio tag controllers
+  useEffect(() => {
+    if (incomingCall && !currentCall) {
+      incomingAudioRef.current?.play().catch(e => console.warn("Autoplay blocked. User needs to interact with page."));
+    } else {
+      if (incomingAudioRef.current) {
+        incomingAudioRef.current.pause();
+        incomingAudioRef.current.currentTime = 0;
+      }
+    }
+
+    if (currentCall && !remoteStream && isCaller) {
+      outgoingAudioRef.current?.play().catch(e => console.warn("Autoplay blocked."));
+    } else {
+      if (outgoingAudioRef.current) {
+        outgoingAudioRef.current.pause();
+        outgoingAudioRef.current.currentTime = 0;
+      }
+    }
+  }, [incomingCall, currentCall, remoteStream, isCaller]);
+
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   const playReceiveSound = () => {
     if (!soundsEnabled) return;
     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
@@ -126,12 +168,6 @@ export default function Chat() {
   };
 
   useEffect(() => {
-    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  useEffect(() => {
     if (localVideoRef.current && localStream) localVideoRef.current.srcObject = localStream;
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
@@ -141,24 +177,15 @@ export default function Chat() {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isRecording) {
-      interval = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
-    } else {
-      setRecordingTime(0);
-    }
+    if (isRecording) interval = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
+    else setRecordingTime(0);
     return () => clearInterval(interval);
   }, [isRecording]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (currentCall && remoteStream) {
-      interval = setInterval(() => {
-        setCallDuration(prev => {
-          const newDuration = prev + 1;
-          callDurationRef.current = newDuration;
-          return newDuration;
-        });
-      }, 1000);
+      interval = setInterval(() => setCallDuration(prev => prev + 1), 1000);
     } else if (!currentCall) {
       setCallDuration(0);
       setIsMuted(false);
@@ -170,11 +197,8 @@ export default function Chat() {
   // Apply Theme & Persist Settings
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
+    if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) root.classList.add('dark');
+    else root.classList.remove('dark');
     localStorage.setItem('whatsapp_theme', theme);
   }, [theme]);
 
@@ -187,11 +211,7 @@ export default function Chat() {
   }, [archivedChats, pinnedChats, manualUnread, blockedUsers, soundsEnabled]);
 
   useEffect(() => {
-    const handleClick = () => {
-      setContextMenu(null);
-      setMessageContextMenu(null);
-      setShowHeaderMenu(false);
-    };
+    const handleClick = () => { setContextMenu(null); setMessageContextMenu(null); setShowHeaderMenu(false); };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
   }, []);
@@ -201,12 +221,7 @@ export default function Chat() {
     if (!user) return;
     const fetchMyProfile = async () => {
       const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
-      if (data) {
-        setMyProfile(data);
-        setEditName(data.name || '');
-      } else {
-        navigate('/profile');
-      }
+      if (data) { setMyProfile(data); setEditName(data.name || ''); } else navigate('/profile');
     };
     fetchMyProfile();
 
@@ -240,8 +255,6 @@ export default function Chat() {
     const messageSubscription = supabase.channel('public:messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const newMsg = payload.new;
-        
-        // INTERCEPT AND BLOCK MESSAGES FROM BLOCKED USERS
         if (blockedUsersRef.current.includes(newMsg.sender_id)) return; 
 
         const currentActiveChat = activeConversationRef.current;
@@ -253,10 +266,7 @@ export default function Chat() {
             const currentCount = prev[newMsg.conversation_id]?.unreadCount || 0;
             return {
               ...prev,
-              [newMsg.conversation_id]: {
-                lastMessage: newMsg,
-                unreadCount: (!isMyMsg && !isActiveChat) ? currentCount + 1 : currentCount
-              }
+              [newMsg.conversation_id]: { lastMessage: newMsg, unreadCount: (!isMyMsg && !isActiveChat) ? currentCount + 1 : currentCount }
             };
           });
         }
@@ -1236,7 +1246,7 @@ export default function Chat() {
              }}>
           {activeConversation ? (
             <>
-              {/* Chat Header (REMOVED SEARCH & 3 DOTS) */}
+              {/* Chat Header */}
               <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between z-10 transition-colors duration-200 shrink-0">
                 <div className="flex items-center cursor-pointer min-w-0 flex-1" onClick={() => setShowContactInfo(true)}>
                   <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0 hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); setActiveConversation(null); }}>
@@ -1531,6 +1541,8 @@ export default function Chat() {
                   <Button onClick={answerCall} className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-600 shadow-lg hover:scale-105 transition-transform"><Phone className="h-8 w-8" /></Button>
                   <Button onClick={rejectCall} className="h-16 w-16 rounded-full bg-[#c62828] hover:bg-red-700 shadow-lg hover:scale-105 transition-transform"><Phone className="h-8 w-8 rotate-[135deg]" /></Button>
                 </div>
+                {/* Audio elements for ringtones */}
+                <audio ref={incomingAudioRef} src={CUSTOM_RINGTONE} loop />
               </div>
             )}
             
@@ -1577,6 +1589,7 @@ export default function Chat() {
                     <Phone className="h-8 w-8 rotate-[135deg] text-white" />
                   </Button>
                 </div>
+                <audio ref={outgoingAudioRef} src="https://actions.google.com/sounds/v1/communications/telephone_ring.ogg" loop />
               </div>
             )}
           </div>
