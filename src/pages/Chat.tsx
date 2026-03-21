@@ -5,12 +5,14 @@ import { useCall } from '@/src/contexts/CallContext';
 import { supabase } from '@/src/lib/supabase';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
-import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search, Reply, X, MessageSquarePlus, Lock, Laptop, Smartphone, ArrowLeft, Camera, Bell, Moon, ChevronRight, Circle, CheckCircle2, Archive, Pin, Smile, FileText, StopCircle, Wand2 } from 'lucide-react';
+import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search, Reply, X, MessageSquarePlus, Lock, ArrowLeft, Camera, Bell, Moon, Circle, CheckCircle2, Archive, Pin, MoreVertical, Smile, FileText, StopCircle, Wand2 } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { playNotificationSound, showNotification } from '@/src/hooks/useNotifications';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+
+const APP_LOGO = 'https://i.postimg.cc/YqT7ff74/unnamed.jpg';
 
 const formatChatTime = (dateString: string) => {
   if (!dateString) return '';
@@ -57,11 +59,11 @@ export default function Chat() {
   const [privacyOnline, setPrivacyOnline] = useState<'everyone' | 'same_as_last_seen'>('everyone');
   const [privacyProfilePhoto, setPrivacyProfilePhoto] = useState<'everyone' | 'contacts' | 'nobody'>('everyone');
 
-  // Settings States (Persisted)
+  // Settings States
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(localStorage.getItem('whatsapp_theme') as any || 'system');
   const [soundsEnabled, setSoundsEnabled] = useState(localStorage.getItem('whatsapp_sounds') !== 'false');
   
-  // Chat Organization & Block States (Persisted)
+  // Chat Organization & Block States
   const [archivedChats, setArchivedChats] = useState<string[]>(JSON.parse(localStorage.getItem('whatsapp_archived') || '[]'));
   const [pinnedChats, setPinnedChats] = useState<string[]>(JSON.parse(localStorage.getItem('whatsapp_pinned') || '[]'));
   const [manualUnread, setManualUnread] = useState<string[]>(JSON.parse(localStorage.getItem('whatsapp_unread') || '[]'));
@@ -116,7 +118,6 @@ export default function Chat() {
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const remoteTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const channelRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -317,9 +318,9 @@ export default function Chat() {
           playReceiveSound();
           if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted' && soundsEnabled) {
              const senderUser = usersRef.current.find(u => u.id === newMsg.sender_id);
-             new Notification(senderUser?.name || "MedLine", { 
+             new Notification(senderUser?.name || "MedLine EST", { 
                body: newMsg.type === 'text' ? newMsg.content : (newMsg.type === 'audio' ? '🎤 Voice message' : '📎 Attachment'),
-               icon: senderUser?.avatar_url || undefined
+               icon: senderUser?.avatar_url || APP_LOGO
              });
           }
           supabase.from('messages').update({ status: 'delivered' }).eq('id', newMsg.id).then();
@@ -872,13 +873,14 @@ export default function Chat() {
   // ================= RENDER =================
   return (
     <div className="relative flex h-[100dvh] w-full bg-[#d1d7db] dark:bg-[#0a1014] overflow-hidden transition-colors duration-200">
-      {/* Background Strip */}
-      <div className="absolute top-0 left-0 w-full h-[127px] bg-[#00a884] dark:bg-[#202c33] z-0 hidden sm:block transition-colors duration-200"></div>
+      
+      {/* THEME STRIP: Changed to EST Crimson Red */}
+      <div className="absolute top-0 left-0 w-full h-[127px] bg-[#c62828] dark:bg-[#1a0a0a] z-0 hidden sm:block transition-colors duration-200"></div>
 
       {/* Main App Container */}
       <div className="relative z-10 flex h-full w-full sm:h-[calc(100vh-38px)] sm:w-[calc(100vw-38px)] sm:mt-[19px] sm:mb-[19px] mx-auto bg-[#f0f2f5] dark:bg-[#111b21] sm:shadow-md sm:rounded-sm overflow-hidden max-w-[1600px] transition-colors duration-200">
         
-        {/* MOBILE LAYOUT: SIDEBAR (hides on mobile when chat is active) */}
+        {/* MOBILE LAYOUT: SIDEBAR */}
         <div className={`w-full sm:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex-col shrink-0 h-full relative transition-colors duration-200 ${activeConversation ? 'hidden sm:flex' : 'flex'}`}>
           
           {/* Main Chats/Calls View */}
@@ -886,26 +888,33 @@ export default function Chat() {
             <>
               <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between shrink-0 transition-colors duration-200">
                 <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setSidebarView('profile')}>
-                  <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden flex items-center justify-center">
-                      {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-white" />}
+                  <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden flex items-center justify-center border-2 border-transparent hover:border-[#fbc02d] transition-colors">
+                      {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-[#c62828] dark:text-[#aebac1]" />}
                   </div>
+                  
+                  {/* EST HEADER LOGO */}
+                  <div className="hidden sm:flex items-center justify-center h-8 w-8 ml-2 rounded-full overflow-hidden border border-[#fbc02d] shadow-sm">
+                    <img src={APP_LOGO} alt="EST Logo" className="h-full w-full object-cover" />
+                  </div>
+
                 </div>
                 <div className="flex items-center space-x-2 text-[#54656f] dark:text-[#aebac1]">
-                  <Button variant="ghost" size="icon" onClick={() => setShowNewChat(true)}><MessageSquarePlus className="h-5 w-5" /></Button>
-                  <Button variant="ghost" size="icon" onClick={() => setSidebarView('settings')}><Settings className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="icon" onClick={() => setShowNewChat(true)} className="hover:text-[#c62828]"><MessageSquarePlus className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="icon" onClick={() => setSidebarView('settings')} className="hover:text-[#c62828]"><Settings className="h-5 w-5" /></Button>
                 </div>
               </div>
               
               <div className="p-2 bg-white dark:bg-[#111b21] transition-colors duration-200">
-                <div className="relative flex items-center bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg px-3 py-1.5 transition-colors duration-200">
+                <div className="relative flex items-center bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg px-3 py-1.5 transition-colors duration-200 focus-within:ring-1 focus-within:ring-[#c62828]">
                   <Search className="h-4 w-4 text-[#54656f] dark:text-[#8696a0]" />
                   <Input placeholder="Search or start new chat" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none shadow-none focus-visible:ring-0 text-[15px] h-8 ml-2 placeholder:text-[#8696a0] text-[#111b21] dark:text-[#e9edef]" />
                 </div>
               </div>
 
+              {/* TABS - Updated to EST Colors */}
               <div className="flex bg-white dark:bg-[#111b21] border-b border-[#f2f2f2] dark:border-[#222d34] shrink-0 transition-colors duration-200">
-                <button className={`flex-1 py-3 text-[14px] font-medium transition-colors border-b-2 ${activeTab === 'chats' ? 'text-[#00a884] border-[#00a884]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('chats')}>Chats</button>
-                <button className={`flex-1 py-3 text-[14px] font-medium transition-colors border-b-2 ${activeTab === 'calls' ? 'text-[#00a884] border-[#00a884]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('calls')}>Calls</button>
+                <button className={`flex-1 py-3 text-[14px] font-bold transition-colors border-b-[3px] ${activeTab === 'chats' ? 'text-[#c62828] border-[#c62828] dark:text-[#fbc02d] dark:border-[#fbc02d]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('chats')}>Chats</button>
+                <button className={`flex-1 py-3 text-[14px] font-bold transition-colors border-b-[3px] ${activeTab === 'calls' ? 'text-[#c62828] border-[#c62828] dark:text-[#fbc02d] dark:border-[#fbc02d]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('calls')}>Calls</button>
               </div>
               
               <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21] transition-colors duration-200 pb-20 sm:pb-0">
@@ -914,10 +923,10 @@ export default function Chat() {
                     {/* Archived Link */}
                     {archivedChats.length > 0 && (
                       <div className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors duration-200" onClick={() => setSidebarView('archived')}>
-                         <div className="h-12 w-12 shrink-0 mr-3 flex items-center justify-center text-[#00a884]"><Archive className="h-5 w-5" /></div>
+                         <div className="h-12 w-12 shrink-0 mr-3 flex items-center justify-center text-[#c62828] dark:text-[#fbc02d]"><Archive className="h-5 w-5" /></div>
                          <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 flex justify-between items-center">
                            <h3 className="text-[17px] text-[#111b21] dark:text-[#e9edef] font-medium">Archived</h3>
-                           <span className="text-[#00a884] text-[12px] font-medium">{archivedChats.length}</span>
+                           <span className="text-[#c62828] dark:text-[#fbc02d] text-[12px] font-bold">{archivedChats.length}</span>
                          </div>
                       </div>
                     )}
@@ -936,30 +945,34 @@ export default function Chat() {
                         return (
                           <div 
                             key={item.id} 
-                            className={`flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] ${activeConversation?.id === convId ? 'bg-[#f0f2f5] dark:bg-[#2a3942]' : ''} transition-colors duration-200`} 
+                            // Modern hover lift
+                            className={`flex cursor-pointer items-center px-3 py-3 hover:bg-[#fff9c4] dark:hover:bg-[#202c33] hover:shadow-sm hover:-translate-y-[1px] transition-all duration-200 ${activeConversation?.id === convId ? 'bg-[#ffebee] dark:bg-[#3e1111]' : ''}`} 
                             onClick={() => isGroup ? startGroupConversation(item) : startConversation(item)}
                             onContextMenu={(e) => handleContextMenu(e, item, convId)}
                           >
-                              <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">
-                                {isGroup ? <div className="h-full w-full bg-[#d9fdd3] dark:bg-[#005c4b] flex items-center justify-center"><span className="text-[#00a884] dark:text-[#e9edef] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span></div> : item.avatar_url ? <img src={item.avatar_url} alt={item.name} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}
+                              {/* Avatar Backgrounds matching theme */}
+                              <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#ffebee] dark:bg-[#54656f]">
+                                {isGroup ? <div className="h-full w-full bg-[#fbc02d] dark:bg-[#c62828] flex items-center justify-center"><span className="text-[#c62828] dark:text-[#fbc02d] font-extrabold text-lg">{item.name.charAt(0).toUpperCase()}</span></div> : item.avatar_url ? <img src={item.avatar_url} alt={item.name} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#c62828] dark:text-[#aebac1]" strokeWidth={1.5} />}
                               </div>
                               <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 min-w-0">
                                 <div className="flex justify-between items-center mb-1">
                                   <h3 className={`text-[17px] text-[#111b21] dark:text-[#e9edef] ${hasUnread ? 'font-bold' : 'font-normal'} truncate`}>{item.name || item.phone}</h3>
-                                  {meta?.lastMessage && <span className={`text-xs ml-2 shrink-0 ${hasUnread ? 'text-[#25d366] font-medium' : 'text-[#667781] dark:text-[#8696a0]'}`}>{formatChatTime(meta.lastMessage.timestamp)}</span>}
+                                  {meta?.lastMessage && <span className={`text-xs ml-2 shrink-0 ${hasUnread ? 'text-[#c62828] dark:text-[#fbc02d] font-bold' : 'text-[#667781] dark:text-[#8696a0]'}`}>{formatChatTime(meta.lastMessage.timestamp)}</span>}
                                 </div>
                                 <div className="flex justify-between items-center min-w-0">
                                   <p className="text-[14px] text-[#667781] dark:text-[#8696a0] truncate pr-4 flex items-center min-w-0">
                                       {meta?.lastMessage?.sender_id === user?.id && (
                                         <span className="mr-1 inline-block align-middle shrink-0">
-                                          {meta.lastMessage.status === 'read' ? <CheckCheck className="h-4 w-4 text-[#53bdeb]" /> : meta.lastMessage.status === 'delivered' ? <CheckCheck className="h-4 w-4 text-[#8696a0]" /> : <Check className="h-4 w-4 text-[#8696a0]" />}
+                                          {/* EST Gold Read Ticks */}
+                                          {meta.lastMessage.status === 'read' ? <CheckCheck className="h-4 w-4 text-[#fbc02d]" /> : meta.lastMessage.status === 'delivered' ? <CheckCheck className="h-4 w-4 text-[#8696a0]" /> : <Check className="h-4 w-4 text-[#8696a0]" />}
                                         </span>
                                       )}
                                       <span className="truncate">{renderLastMessagePreview(meta?.lastMessage)}</span>
                                   </p>
                                   <div className="flex items-center space-x-2 shrink-0">
                                     {isPinned && <Pin className="h-4 w-4 text-[#8696a0]" fill="currentColor" />}
-                                    {hasUnread && <div className="bg-[#25d366] text-white text-[11px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">{meta.unreadCount || ''}</div>}
+                                    {/* Unread Badge EST Yellow */}
+                                    {hasUnread && <div className="bg-[#fbc02d] text-[#111b21] text-[11px] font-bold h-5 min-w-[20px] px-1.5 rounded-full flex items-center justify-center shrink-0">{meta.unreadCount || ''}</div>}
                                   </div>
                                 </div>
                               </div>
@@ -982,20 +995,20 @@ export default function Chat() {
                       const isMissed = call.status === 'missed';
                       
                       return (
-                        <div key={call.id} className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors duration-200" onClick={() => { if (otherUser) { setActiveTab('chats'); startConversation(otherUser); }}}>
-                          <div className="h-12 w-12 shrink-0 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center">
-                            {otherUser?.avatar_url ? <img src={otherUser.avatar_url} alt={otherUser?.name} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}
+                        <div key={call.id} className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#fff9c4] dark:hover:bg-[#202c33] hover:shadow-sm hover:-translate-y-[1px] transition-all duration-200" onClick={() => { if (otherUser) { setActiveTab('chats'); startConversation(otherUser); }}}>
+                          <div className="h-12 w-12 shrink-0 rounded-full bg-[#ffebee] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center">
+                            {otherUser?.avatar_url ? <img src={otherUser.avatar_url} alt={otherUser?.name} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#c62828] dark:text-[#aebac1]" strokeWidth={1.5} />}
                           </div>
                           <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 flex justify-between items-center">
                             <div className="flex-1">
                               <h3 className={`text-[17px] ${isMissed ? 'text-red-500' : 'text-[#111b21] dark:text-[#e9edef]'}`}>{otherUser?.name || otherUser?.phone || 'Unknown'}</h3>
                               <div className="flex items-center text-[13px] text-[#667781] dark:text-[#8696a0] mt-0.5">
-                                {isIncoming ? <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#25d366]'} rotate-[135deg]`} /> : <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#8696a0]'}`} />}
+                                {isIncoming ? <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#c62828] dark:text-[#fbc02d]'} rotate-[135deg]`} /> : <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#8696a0]'}`} />}
                                 <span>{callData.type === 'video' ? 'Video' : 'Voice'}</span><span className="mx-1">•</span><span>{formatChatTime(call.timestamp)}</span>
                               </div>
                             </div>
                             <div className="flex items-center space-x-2 pl-2">
-                               <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); if (otherUser) initiateCall(otherUser.id, callData.type === 'video'); }} className="h-10 w-10 text-[#00a884] hover:bg-[#f0f2f5] dark:hover:bg-[#202c33] rounded-full">
+                               <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); if (otherUser) initiateCall(otherUser.id, callData.type === 'video'); }} className="h-10 w-10 text-[#c62828] dark:text-[#fbc02d] hover:bg-[#ffebee] dark:hover:bg-[#202c33] rounded-full">
                                  {callData.type === 'video' ? <Video className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
                                </Button>
                             </div>
@@ -1008,9 +1021,9 @@ export default function Chat() {
               </div>
             </>
           ) : sidebarView === 'archived' ? (
-            /* ARCHIVED SLIDE-IN */
+            /* ARCHIVED SLIDE-IN (Updated to Dark Red Header) */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-20 animate-in slide-in-from-right duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('chats')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Archived</h1>
@@ -1023,11 +1036,11 @@ export default function Chat() {
                       const convId = isGroup ? item.id : `conv_${[user?.id, item.id].sort().join('_')}`;
                       const meta = chatMeta[convId];
                       return (
-                        <div key={item.id} className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors duration-200" 
+                        <div key={item.id} className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#fff9c4] dark:hover:bg-[#202c33] transition-colors duration-200" 
                              onClick={() => isGroup ? startGroupConversation(item) : startConversation(item)}
                              onContextMenu={(e) => handleContextMenu(e, item, convId)}>
-                            <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">
-                               {isGroup ? <span className="text-[#00a884] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span> : item.avatar_url ? <img src={item.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}
+                            <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#ffebee] dark:bg-[#54656f]">
+                               {isGroup ? <span className="text-[#c62828] font-bold text-lg">{item.name.charAt(0).toUpperCase()}</span> : item.avatar_url ? <img src={item.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#c62828] dark:text-[#aebac1]" strokeWidth={1.5} />}
                             </div>
                             <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 min-w-0">
                               <div className="flex justify-between items-center mb-1">
@@ -1045,7 +1058,7 @@ export default function Chat() {
           ) : sidebarView === 'profile' ? (
             /* PROFILE SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-20 animate-in slide-in-from-left duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('chats')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Profile</h1>
@@ -1053,17 +1066,17 @@ export default function Chat() {
                </div>
                <div className="flex-1 overflow-y-auto flex flex-col items-center">
                   <div className="w-full bg-white dark:bg-[#111b21] p-7 flex justify-center shadow-sm mb-3 transition-colors duration-200">
-                    <div className="relative h-48 w-48 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden group cursor-pointer flex items-center justify-center">
-                      {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-24 w-24 text-white dark:text-[#aebac1]" />}
+                    <div className="relative h-48 w-48 rounded-full bg-[#ffebee] dark:bg-[#54656f] overflow-hidden group cursor-pointer flex items-center justify-center">
+                      {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-24 w-24 text-[#c62828] dark:text-[#aebac1]" />}
                       <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="h-6 w-6 text-white mb-2" /><span className="text-xs text-white uppercase text-center px-4 font-medium">Change Profile Photo</span></div>
                       <input type="file" accept="image/*" onChange={handleProfileImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                     </div>
                   </div>
                   <div className="w-full bg-white dark:bg-[#111b21] p-4 sm:px-7 shadow-sm transition-colors duration-200">
-                     <p className="text-[#008069] dark:text-[#00a884] text-[14px] mb-4">Your name</p>
-                     <div className="flex items-center border-b-2 border-transparent focus-within:border-[#008069] dark:focus-within:border-[#00a884] pb-1">
+                     <p className="text-[#c62828] dark:text-[#fbc02d] text-[14px] font-bold mb-4">Your name</p>
+                     <div className="flex items-center border-b-2 border-transparent focus-within:border-[#c62828] dark:focus-within:border-[#fbc02d] pb-1">
                        <Input value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={saveProfileName} className="flex-1 border-none shadow-none focus-visible:ring-0 px-0 text-[17px] text-[#111b21] dark:text-[#e9edef] bg-transparent" />
-                       <Check className="h-5 w-5 text-[#8696a0] cursor-pointer hover:text-[#111b21] dark:hover:text-[#e9edef]" onClick={saveProfileName} />
+                       <Check className="h-5 w-5 text-[#8696a0] cursor-pointer hover:text-[#c62828] dark:hover:text-[#fbc02d]" onClick={saveProfileName} />
                      </div>
                      <p className="text-[14px] text-[#8696a0] mt-4">This is not your username or pin. This name will be visible to your MedLine contacts.</p>
                   </div>
@@ -1072,46 +1085,46 @@ export default function Chat() {
           ) : sidebarView === 'settings' ? (
             /* SETTINGS SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-20 animate-in slide-in-from-left duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('chats')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Settings</h1>
                  </div>
                </div>
                <div className="flex-1 overflow-y-auto">
-                  <div className="flex items-center px-4 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] bg-white dark:bg-[#111b21] border-b border-[#f2f2f2] dark:border-[#222d34] transition-colors duration-200" onClick={() => setSidebarView('profile')}>
-                    <div className="h-16 w-16 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mr-4 flex items-center justify-center">
-                        {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-white dark:text-[#aebac1]" />}
+                  <div className="flex items-center px-4 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33] bg-white dark:bg-[#111b21] border-b border-[#f2f2f2] dark:border-[#222d34] transition-colors duration-200" onClick={() => setSidebarView('profile')}>
+                    <div className="h-16 w-16 rounded-full bg-[#ffebee] dark:bg-[#54656f] overflow-hidden mr-4 flex items-center justify-center">
+                        {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#c62828] dark:text-[#aebac1]" />}
                     </div>
                     <div>
-                      <h2 className="text-[17px] text-[#111b21] dark:text-[#e9edef]">{myProfile?.name || 'User'}</h2>
+                      <h2 className="text-[17px] text-[#111b21] dark:text-[#e9edef] font-bold">{myProfile?.name || 'User'}</h2>
                       <p className="text-[14px] text-[#667781] dark:text-[#8696a0]">{myProfile?.phone || myProfile?.email}</p>
                     </div>
                   </div>
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm transition-colors duration-200">
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy')}><Lock className="h-5 w-5 text-[#8696a0] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Privacy</span></div>
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('notifications')}><Bell className="h-5 w-5 text-[#8696a0] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Notifications</span></div>
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('theme')}><Moon className="h-5 w-5 text-[#8696a0] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Theme</span></div>
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] text-red-500" onClick={signOut}><LogOut className="h-5 w-5 mr-6" /><span className="text-[16px]">Log out</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy')}><Lock className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Privacy</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('notifications')}><Bell className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Notifications</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('theme')}><Moon className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Theme</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#ffebee] dark:hover:bg-[#3e1111] text-red-600 font-bold" onClick={signOut}><LogOut className="h-5 w-5 mr-6" /><span className="text-[16px]">Log out</span></div>
                   </div>
                </div>
             </div>
           ) : sidebarView === 'privacy' ? (
             /* PRIVACY SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-30 animate-in slide-in-from-right duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('settings')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Privacy</h1>
                  </div>
                </div>
                <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21] py-2 transition-colors duration-200">
-                  <div className="px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy-last-seen')}>
-                     <h3 className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Last seen and online</h3>
+                  <div className="px-6 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy-last-seen')}>
+                     <h3 className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Last seen and online</h3>
                      <p className="text-[14px] text-[#667781] dark:text-[#8696a0] mt-1">{privacyLastSeen === 'everyone' ? 'Everyone' : privacyLastSeen === 'contacts' ? 'My contacts' : 'Nobody'}</p>
                   </div>
-                  <div className="px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy-profile-photo')}>
-                     <h3 className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Profile photo</h3>
+                  <div className="px-6 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy-profile-photo')}>
+                     <h3 className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Profile photo</h3>
                      <p className="text-[14px] text-[#667781] dark:text-[#8696a0] mt-1">{privacyProfilePhoto === 'everyone' ? 'Everyone' : privacyProfilePhoto === 'contacts' ? 'My contacts' : 'Nobody'}</p>
                   </div>
                </div>
@@ -1119,7 +1132,7 @@ export default function Chat() {
           ) : sidebarView === 'privacy-last-seen' ? (
             /* PRIVACY: LAST SEEN SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-40 animate-in slide-in-from-right duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('privacy')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Last seen and online</h1>
@@ -1127,20 +1140,20 @@ export default function Chat() {
                </div>
                <div className="flex-1 overflow-y-auto">
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm mb-4 transition-colors duration-200">
-                     <p className="px-6 py-3 text-[14px] text-[#008069] dark:text-[#00a884] font-medium">Who can see my last seen</p>
+                     <p className="px-6 py-3 text-[14px] text-[#c62828] dark:text-[#fbc02d] font-bold">Who can see my last seen</p>
                      {['everyone', 'contacts', 'nobody'].map((option: any) => (
-                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setPrivacyLastSeen(option)}>
-                         {privacyLastSeen === option ? <CheckCircle2 className="h-5 w-5 text-[#00a884] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
-                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">{option === 'everyone' ? 'Everyone' : option === 'contacts' ? 'My contacts' : 'Nobody'}</span>
+                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setPrivacyLastSeen(option)}>
+                         {privacyLastSeen === option ? <CheckCircle2 className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
+                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">{option === 'everyone' ? 'Everyone' : option === 'contacts' ? 'My contacts' : 'Nobody'}</span>
                        </div>
                      ))}
                   </div>
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm transition-colors duration-200">
-                     <p className="px-6 py-3 text-[14px] text-[#008069] dark:text-[#00a884] font-medium">Who can see when I'm online</p>
+                     <p className="px-6 py-3 text-[14px] text-[#c62828] dark:text-[#fbc02d] font-bold">Who can see when I'm online</p>
                      {['everyone', 'same_as_last_seen'].map((option: any) => (
-                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setPrivacyOnline(option)}>
-                         {privacyOnline === option ? <CheckCircle2 className="h-5 w-5 text-[#00a884] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
-                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">{option === 'everyone' ? 'Everyone' : 'Same as last seen'}</span>
+                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setPrivacyOnline(option)}>
+                         {privacyOnline === option ? <CheckCircle2 className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
+                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">{option === 'everyone' ? 'Everyone' : 'Same as last seen'}</span>
                        </div>
                      ))}
                   </div>
@@ -1149,7 +1162,7 @@ export default function Chat() {
           ) : sidebarView === 'privacy-profile-photo' ? (
             /* PRIVACY: PROFILE PHOTO SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-40 animate-in slide-in-from-right duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('privacy')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Profile photo</h1>
@@ -1157,11 +1170,11 @@ export default function Chat() {
                </div>
                <div className="flex-1 overflow-y-auto">
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm mb-4 transition-colors duration-200">
-                     <p className="px-6 py-3 text-[14px] text-[#008069] dark:text-[#00a884] font-medium">Who can see my profile photo</p>
+                     <p className="px-6 py-3 text-[14px] text-[#c62828] dark:text-[#fbc02d] font-bold">Who can see my profile photo</p>
                      {['everyone', 'contacts', 'nobody'].map((option: any) => (
-                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setPrivacyProfilePhoto(option)}>
-                         {privacyProfilePhoto === option ? <CheckCircle2 className="h-5 w-5 text-[#00a884] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
-                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">{option === 'everyone' ? 'Everyone' : option === 'contacts' ? 'My contacts' : 'Nobody'}</span>
+                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setPrivacyProfilePhoto(option)}>
+                         {privacyProfilePhoto === option ? <CheckCircle2 className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
+                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">{option === 'everyone' ? 'Everyone' : option === 'contacts' ? 'My contacts' : 'Nobody'}</span>
                        </div>
                      ))}
                   </div>
@@ -1170,7 +1183,7 @@ export default function Chat() {
           ) : sidebarView === 'theme' ? (
             /* THEME SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-40 animate-in slide-in-from-right duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('settings')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Theme</h1>
@@ -1178,11 +1191,11 @@ export default function Chat() {
                </div>
                <div className="flex-1 overflow-y-auto">
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm mb-4 transition-colors duration-200">
-                     <p className="px-6 py-3 text-[14px] text-[#008069] dark:text-[#00a884] font-medium">Choose theme</p>
+                     <p className="px-6 py-3 text-[14px] text-[#c62828] dark:text-[#fbc02d] font-bold">Choose theme</p>
                      {['light', 'dark', 'system'].map((option: any) => (
-                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setTheme(option)}>
-                         {theme === option ? <CheckCircle2 className="h-5 w-5 text-[#00a884] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
-                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef] capitalize">{option === 'system' ? 'System default' : option}</span>
+                       <div key={option} className="flex items-center px-6 py-3 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setTheme(option)}>
+                         {theme === option ? <CheckCircle2 className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
+                         <span className="text-[16px] text-[#111b21] dark:text-[#e9edef] capitalize font-medium">{option === 'system' ? 'System default' : option}</span>
                        </div>
                      ))}
                   </div>
@@ -1191,7 +1204,7 @@ export default function Chat() {
           ) : sidebarView === 'notifications' ? (
             /* NOTIFICATIONS SLIDE-IN MENU */
             <div className="absolute inset-0 bg-[#f0f2f5] dark:bg-[#111b21] flex flex-col z-40 animate-in slide-in-from-right duration-300 transition-colors duration-200">
-               <div className="bg-[#008069] dark:bg-[#202c33] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
+               <div className="bg-[#b71c1c] dark:bg-[#1a0a0a] h-[108px] flex items-end pb-4 px-6 text-white shrink-0 shadow-sm transition-colors duration-200">
                  <div className="flex items-center cursor-pointer" onClick={() => setSidebarView('settings')}>
                    <ArrowLeft className="h-6 w-6 mr-6" />
                    <h1 className="text-[19px] font-medium">Notifications</h1>
@@ -1199,10 +1212,10 @@ export default function Chat() {
                </div>
                <div className="flex-1 overflow-y-auto">
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm mb-4 transition-colors duration-200">
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSoundsEnabled(!soundsEnabled)}>
-                         {soundsEnabled ? <CheckCircle2 className="h-5 w-5 text-[#00a884] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#fff9c4] dark:hover:bg-[#202c33]" onClick={() => setSoundsEnabled(!soundsEnabled)}>
+                         {soundsEnabled ? <CheckCircle2 className="h-5 w-5 text-[#c62828] dark:text-[#fbc02d] mr-4" /> : <Circle className="h-5 w-5 text-[#8696a0] mr-4" />}
                          <div>
-                           <h3 className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Sounds</h3>
+                           <h3 className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Sounds</h3>
                            <p className="text-[14px] text-[#667781] dark:text-[#8696a0]">Play sounds for incoming messages</p>
                          </div>
                      </div>
@@ -1216,16 +1229,16 @@ export default function Chat() {
              <div className="fixed z-[9999] bg-white dark:bg-[#233138] shadow-2xl rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700" 
                   style={{ top: contextMenu.y, left: contextMenu.x }}
                   onClick={(e) => e.stopPropagation()}>
-                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px]" onClick={() => toggleArchive(contextMenu.convId)}>
+                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px] font-medium" onClick={() => toggleArchive(contextMenu.convId)}>
                    {archivedChats.includes(contextMenu.convId) ? 'Unarchive chat' : 'Archive chat'}
                 </div>
-                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px]" onClick={() => togglePin(contextMenu.convId)}>
+                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px] font-medium" onClick={() => togglePin(contextMenu.convId)}>
                    {pinnedChats.includes(contextMenu.convId) ? 'Unpin chat' : 'Pin to top'}
                 </div>
-                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px]" onClick={() => toggleUnread(contextMenu.convId)}>
+                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px] font-medium" onClick={() => toggleUnread(contextMenu.convId)}>
                    {manualUnread.includes(contextMenu.convId) ? 'Mark as read' : 'Mark as unread'}
                 </div>
-                <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-red-500 text-[14px]" onClick={() => deleteChatLocal(contextMenu.convId)}>
+                <div className="px-4 py-2 hover:bg-[#ffebee] dark:hover:bg-[#3e1111] cursor-pointer text-red-600 font-bold text-[14px]" onClick={() => deleteChatLocal(contextMenu.convId)}>
                    Delete chat
                 </div>
              </div>
@@ -1235,6 +1248,7 @@ export default function Chat() {
         {/* MAIN CHAT AREA */}
         <div className={`flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden h-full sm:border-l border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 ${!activeConversation ? 'hidden sm:flex' : 'flex w-full sm:w-auto'}`} 
              style={{ 
+                // Using Whatsapp generic doodle but blending with theme via opacity
                 backgroundImage: activeConversation 
                   ? (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) 
                      ? 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")' 
@@ -1242,25 +1256,26 @@ export default function Chat() {
                   : 'none', 
                 backgroundRepeat: 'repeat', 
                 backgroundSize: '400px', 
-                opacity: activeConversation ? (theme === 'dark' ? 0.3 : 0.9) : 1 
+                opacity: activeConversation ? (theme === 'dark' ? 0.2 : 0.8) : 1 
              }}>
           {activeConversation ? (
             <>
               {/* Chat Header (REMOVED SEARCH & 3 DOTS) */}
               <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between z-10 transition-colors duration-200 shrink-0">
                 <div className="flex items-center cursor-pointer min-w-0 flex-1" onClick={() => setShowContactInfo(true)}>
-                  <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0" onClick={(e) => { e.stopPropagation(); setActiveConversation(null); }}>
+                  <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0 hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); setActiveConversation(null); }}>
                     <ArrowLeft className="h-6 w-6 text-[#54656f] dark:text-[#aebac1]" />
                   </Button>
-                  <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center shrink-0">
-                      {activeConversation.isGroup ? <span className="text-[#00a884] font-semibold flex items-center justify-center h-full text-lg">{activeConversation.name.charAt(0).toUpperCase()}</span> : activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-white" />}
+                  <div className="h-10 w-10 rounded-full bg-[#ffebee] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center shrink-0">
+                      {activeConversation.isGroup ? <span className="text-[#c62828] dark:text-[#fbc02d] font-bold text-lg">{activeConversation.name.charAt(0).toUpperCase()}</span> : activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-[#c62828] dark:text-[#aebac1]" />}
                   </div>
                   <div className="min-w-0 pr-2">
-                    <h2 className="text-[16px] font-medium text-[#111b21] dark:text-[#e9edef] leading-tight truncate">
+                    <h2 className="text-[16px] font-bold text-[#111b21] dark:text-[#e9edef] leading-tight truncate">
                       {activeConversation.isGroup ? activeConversation.name : (activeConversation.user?.name || activeConversation.user?.phone)}
                     </h2>
-                    <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate">
-                      {remoteTyping ? <span className="text-[#00a884]">typing...</span> : activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'online' : `last seen ${formatChatTime(activeConversation.user?.last_seen) || 'recently'}`)}
+                    <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate font-medium">
+                      {/* ACCURATE LAST SEEN AND ONLINE STATUS */}
+                      {remoteTyping ? <span className="text-[#c62828] dark:text-[#fbc02d]">typing...</span> : activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'online' : `last seen ${formatChatTime(activeConversation.user?.last_seen) || 'recently'}`)}
                     </p>
                   </div>
                 </div>
@@ -1268,8 +1283,8 @@ export default function Chat() {
                   {/* HIDE CALL BUTTONS IF BLOCKED */}
                   {!activeConversation.isGroup && !blockedUsers.includes(activeConversation.user?.id) && (
                     <>
-                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); initiateCall(activeConversation.user.id, true); }}><Video className="h-5 w-5" /></Button>
-                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); initiateCall(activeConversation.user.id, false); }}><Phone className="h-5 w-5" /></Button>
+                      <Button variant="ghost" size="icon" className="hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); initiateCall(activeConversation.user.id, true); }}><Video className="h-5 w-5" /></Button>
+                      <Button variant="ghost" size="icon" className="hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); initiateCall(activeConversation.user.id, false); }}><Phone className="h-5 w-5" /></Button>
                     </>
                   )}
                 </div>
@@ -1286,12 +1301,13 @@ export default function Chat() {
                       <div className="flex items-start max-w-[85%] sm:max-w-[65%] relative">
                         
                         {/* Hover Reply Button */}
-                        <button onClick={(e) => { e.stopPropagation(); setReplyingTo(msg); }} className={`opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 p-2 text-[#8696a0] hover:text-[#54656f] dark:hover:text-[#aebac1] ${isMe ? '-left-10' : '-right-10'}`}>
+                        <button onClick={(e) => { e.stopPropagation(); setReplyingTo(msg); }} className={`opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 p-2 text-[#8696a0] hover:text-[#c62828] dark:hover:text-[#fbc02d] ${isMe ? '-left-10' : '-right-10'}`}>
                           <Reply className="h-4 w-4" />
                         </button>
 
                         <div 
-                           className={`rounded-lg px-2 py-1.5 shadow-sm text-[14.2px] text-[#111b21] dark:text-[#e9edef] ${isMe ? 'bg-[#d9fdd3] dark:bg-[#005c4b] rounded-tr-none' : 'bg-white dark:bg-[#202c33] rounded-tl-none'} transition-colors duration-200 cursor-pointer relative`}
+                           // OUTGOING BUBBLE is Light Red / Dark Red. INCOMING is White / Dark Gray.
+                           className={`rounded-xl px-2.5 py-1.5 shadow-sm text-[14.2px] text-[#111b21] dark:text-[#e9edef] ${isMe ? 'bg-[#ffcdd2] dark:bg-[#7f0000] rounded-tr-none' : 'bg-white dark:bg-[#202c33] rounded-tl-none'} transition-colors duration-200 cursor-pointer relative`}
                            onTouchStart={handleTouchStart}
                            onTouchEnd={(e) => handleTouchEnd(e, msg)}
                            onContextMenu={(e) => handleMessageContextMenu(e, msg)}
@@ -1299,8 +1315,8 @@ export default function Chat() {
                           
                           {/* Render Reply Context inside bubble */}
                           {msg.type === 'reply' && (
-                            <div className="bg-black/5 dark:bg-black/20 rounded cursor-pointer p-2 mb-1 border-l-4 border-[#00a884] flex flex-col">
-                               <span className="text-[12px] font-semibold text-[#00a884]">{JSON.parse(msg.content).originalSender}</span>
+                            <div className="bg-white/40 dark:bg-black/20 rounded cursor-pointer p-2 mb-1 border-l-4 border-[#c62828] dark:border-[#fbc02d] flex flex-col">
+                               <span className="text-[12px] font-extrabold text-[#c62828] dark:text-[#fbc02d]">{JSON.parse(msg.content).originalSender}</span>
                                <span className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate">{JSON.parse(msg.content).originalText}</span>
                             </div>
                           )}
@@ -1312,8 +1328,8 @@ export default function Chat() {
                              ) : msg.type === 'audio' ? (
                                <audio controls src={msg.content} className="max-w-[200px] sm:max-w-[250px] h-10 mb-4 mt-1" />
                              ) : msg.type === 'document' ? (
-                               <a href={JSON.parse(msg.content).url} target="_blank" rel="noreferrer" className="flex items-center space-x-3 bg-black/5 dark:bg-white/5 p-3 rounded-lg mb-4 mt-1 cursor-pointer hover:bg-black/10 dark:hover:bg-white/10 transition">
-                                  <FileText className="h-8 w-8 text-[#54656f] dark:text-[#aebac1]" />
+                               <a href={JSON.parse(msg.content).url} target="_blank" rel="noreferrer" className="flex items-center space-x-3 bg-white/40 dark:bg-white/5 p-3 rounded-lg mb-4 mt-1 cursor-pointer hover:bg-white/60 dark:hover:bg-white/10 transition">
+                                  <FileText className="h-8 w-8 text-[#c62828] dark:text-[#fbc02d]" />
                                   <span className="truncate max-w-[150px] text-sm font-medium">{JSON.parse(msg.content).name}</span>
                                </a>
                              ) : msg.type === 'reply' ? (
@@ -1322,12 +1338,12 @@ export default function Chat() {
                                <span className="pb-3 pr-14 break-words">{msg.content}</span>
                              )}
                              
-                             {/* Timestamps and Ticks */}
-                             <div className="absolute bottom-[-2px] right-0 flex items-center text-[10px] text-[#667781] dark:text-[#8696a0]">
+                             {/* Timestamps and Ticks - Gold/Yellow checkmarks for EST Theme */}
+                             <div className="absolute bottom-[-2px] right-0 flex items-center text-[10px] text-[#667781] dark:text-[#e9edef]/60">
                                <span>{format(new Date(msg.timestamp), 'HH:mm')}</span>
                                {isMe && (
                                  <span className="ml-1">
-                                   {msg.status === 'read' ? <CheckCheck className="h-[14px] w-[14px] text-[#53bdeb]" /> : msg.status === 'delivered' ? <CheckCheck className="h-[14px] w-[14px]" /> : <Check className="h-[14px] w-[14px]" />}
+                                   {msg.status === 'read' ? <CheckCheck className="h-[14px] w-[14px] text-[#fbc02d]" /> : msg.status === 'delivered' ? <CheckCheck className="h-[14px] w-[14px]" /> : <Check className="h-[14px] w-[14px]" />}
                                  </span>
                                )}
                              </div>
@@ -1363,7 +1379,7 @@ export default function Chat() {
                        </button>
                      ))}
                    </div>
-                   <div className="px-4 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[15px]" 
+                   <div className="px-4 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[15px] font-bold" 
                         onClick={() => { setReplyingTo(messageContextMenu.msg); setMessageContextMenu(null); }}>
                       Reply
                    </div>
@@ -1372,7 +1388,7 @@ export default function Chat() {
 
               {/* Emoji Picker Pop-up */}
               {showEmojiPicker && (
-                <div className="absolute bottom-[60px] left-0 z-50">
+                <div className="absolute bottom-[60px] left-0 z-50 shadow-2xl">
                   <EmojiPicker 
                      theme={theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) ? Theme.DARK : Theme.LIGHT} 
                      onEmojiClick={(emojiData) => setNewMessage(prev => prev + emojiData.emoji)} 
@@ -1385,8 +1401,8 @@ export default function Chat() {
               {/* INPUT AREA OR BLOCKED MESSAGE */}
               {isCurrentChatBlocked ? (
                  <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-2 sm:px-4 py-4 z-10 flex justify-center items-center border-t border-[#d1d7db] dark:border-[#222d34]">
-                    <p className="text-[14px] text-[#667781] dark:text-[#8696a0]">
-                      You blocked this contact. <span className="cursor-pointer text-[#00a884] hover:underline" onClick={() => toggleBlock(activeConversation.user?.id)}>Tap to unblock.</span>
+                    <p className="text-[14px] text-[#667781] dark:text-[#8696a0] font-medium">
+                      You blocked this contact. <span className="cursor-pointer text-[#c62828] dark:text-[#fbc02d] hover:underline font-bold" onClick={() => toggleBlock(activeConversation.user?.id)}>Tap to unblock.</span>
                     </p>
                  </div>
               ) : (
@@ -1394,9 +1410,9 @@ export default function Chat() {
                   {/* Replying Preview Box */}
                   {replyingTo && (
                     <div className="bg-[#f0f2f5] dark:bg-[#202c33] mb-2 px-2 flex transition-colors duration-200">
-                       <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-lg p-3 border-l-4 border-[#00a884] relative">
-                         <button type="button" onClick={() => setReplyingTo(null)} className="absolute top-2 right-2 text-[#8696a0]"><X className="h-4 w-4" /></button>
-                         <p className="text-[13px] font-semibold text-[#00a884]">{replyingTo.sender_id === user?.id ? 'You' : 'User'}</p>
+                       <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-lg p-3 border-l-4 border-[#c62828] dark:border-[#fbc02d] shadow-sm relative">
+                         <button type="button" onClick={() => setReplyingTo(null)} className="absolute top-2 right-2 text-[#8696a0] hover:text-[#c62828]"><X className="h-4 w-4" /></button>
+                         <p className="text-[13px] font-extrabold text-[#c62828] dark:text-[#fbc02d]">{replyingTo.sender_id === user?.id ? 'You' : 'User'}</p>
                          <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate pr-8">
                            {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice message' : replyingTo.type === 'document' ? '📄 Document' : replyingTo.type === 'reply' ? JSON.parse(replyingTo.content).text : replyingTo.content}
                          </p>
@@ -1407,20 +1423,20 @@ export default function Chat() {
                   <form onSubmit={sendMessage} className="flex items-center space-x-1 sm:space-x-3 relative">
                     
                     {/* Emoji Button */}
-                    <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] shrink-0" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+                    <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] shrink-0 hover:text-[#c62828]" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
                        <Smile className="h-6 w-6" />
                     </Button>
                     
                     {/* File Upload Button (Paperclip) */}
                     <div className="relative shrink-0">
-                      <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0]"><Paperclip className="h-6 w-6" /></Button>
+                      <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] hover:text-[#c62828]"><Paperclip className="h-6 w-6" /></Button>
                       <input type="file" accept="*/*" onChange={handleFileUpload} className="absolute inset-0 cursor-pointer opacity-0 w-full h-full" title="Attach file" />
                     </div>
                     
                     {/* Text Input OR Audio Recording UI */}
                     {isRecording ? (
-                       <div className="flex-1 flex items-center justify-between bg-white dark:bg-[#2a3942] rounded-lg px-4 py-2 sm:py-3 shadow-sm border border-red-500/50">
-                          <div className="flex items-center text-red-500 animate-pulse font-medium">
+                       <div className="flex-1 flex items-center justify-between bg-white dark:bg-[#2a3942] rounded-full px-4 py-2 sm:py-3 shadow-sm border border-red-500/50">
+                          <div className="flex items-center text-red-600 animate-pulse font-bold">
                             <Mic className="h-5 w-5 mr-2" />
                             <span>{formatDuration(recordingTime)}</span>
                           </div>
@@ -1429,16 +1445,16 @@ export default function Chat() {
                           </Button>
                        </div>
                     ) : (
-                      <Input value={newMessage} onChange={handleTyping} onClick={() => setShowEmojiPicker(false)} placeholder="Type a message" className="flex-1 rounded-lg bg-white dark:bg-[#2a3942] border-none py-3 px-4 shadow-sm focus-visible:ring-0 text-[15px] text-[#111b21] dark:text-[#e9edef] placeholder:text-[#8696a0]" />
+                      <Input value={newMessage} onChange={handleTyping} onClick={() => setShowEmojiPicker(false)} placeholder="Type a message" className="flex-1 rounded-full bg-white dark:bg-[#2a3942] border-none py-3 px-4 shadow-sm focus-visible:ring-0 text-[15px] text-[#111b21] dark:text-[#e9edef] placeholder:text-[#8696a0]" />
                     )}
 
                     {/* Send Text OR Start Audio Recording Button */}
                     {newMessage.trim() ? (
-                      <Button type="submit" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] hover:text-[#00a884] dark:hover:text-[#00a884] shrink-0">
+                      <Button type="submit" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] hover:text-[#c62828] dark:hover:text-[#fbc02d] shrink-0">
                         <Send className="h-6 w-6" />
                       </Button>
                     ) : isRecording ? null : (
-                      <Button type="button" variant="ghost" size="icon" onClick={startRecording} className="text-[#54656f] dark:text-[#8696a0] hover:text-[#00a884] dark:hover:text-[#00a884] shrink-0">
+                      <Button type="button" variant="ghost" size="icon" onClick={startRecording} className="text-[#54656f] dark:text-[#8696a0] hover:text-[#c62828] dark:hover:text-[#fbc02d] shrink-0">
                         <Mic className="h-6 w-6" />
                       </Button>
                     )}
@@ -1447,19 +1463,40 @@ export default function Chat() {
               )}
             </>
           ) : (
-            // EMPTY STATE (Only visible on Desktop when no chat is active)
-            <div className="flex h-full flex-col items-center justify-center border-b-[6px] border-[#25d366] z-10 bg-[#f0f2f5] dark:bg-[#222d34] w-full transition-colors duration-200">
-               <div className="text-center flex flex-col items-center">
-                  <div className="mb-8 w-80 h-44 flex items-center justify-center">
-                     <div className="relative flex items-center justify-center w-full h-full bg-[#e3e6e8] dark:bg-[#2a3942] rounded-full px-12 transition-colors duration-200">
-                         <Laptop className="h-20 w-20 text-[#8696a0] z-10" strokeWidth={1} />
-                         <Smartphone className="h-14 w-14 text-[#00a884] absolute right-16 bottom-6 z-20 bg-[#f0f2f5] dark:bg-[#222d34] rounded-lg p-1 transition-colors duration-200" strokeWidth={1.5} />
-                     </div>
-                  </div>
-                  <h1 className="text-[32px] font-light text-[#41525d] dark:text-[#e9edef] mb-4 transition-colors duration-200">MedLine for Web</h1>
-                  <p className="text-[#667781] dark:text-[#8696a0] text-[14px] leading-relaxed mb-10 max-w-md transition-colors duration-200">Send and receive messages without keeping your phone online.<br/>Use MedLine on up to 4 linked devices and 1 phone at the same time.</p>
+            // ==========================================
+            // BRAND NEW EST THEMED 3D HERO EMPTY STATE
+            // ==========================================
+            <div className="flex h-full flex-col items-center justify-center border-b-[6px] border-[#fbc02d] z-10 relative overflow-hidden bg-gradient-to-br from-slate-50 to-slate-200 dark:from-[#0a1014] dark:to-[#111b21] w-full transition-colors duration-200">
+               
+               {/* Background animated glowing orbs */}
+               <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#c62828]/20 rounded-full blur-3xl animate-pulse"></div>
+               <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#fbc02d]/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
+
+               {/* Modern 3D Glassmorphism Card */}
+               <div className="relative z-10 group perspective-1000">
+                 <div className="w-[90%] max-w-[450px] p-10 rounded-3xl bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_20px_50px_rgba(198,40,40,0.2)] transition-all duration-500 hover:-translate-y-2 flex flex-col items-center text-center">
+                    
+                    {/* EST Logo with spinning glow */}
+                    <div className="relative w-36 h-36 mb-8">
+                      <div className="absolute inset-[-10px] bg-gradient-to-r from-[#c62828] to-[#fbc02d] rounded-full animate-spin blur-lg opacity-70"></div>
+                      <img src={APP_LOGO} alt="EST Logo" className="relative z-10 w-full h-full rounded-full border-4 border-white dark:border-[#111b21] object-cover shadow-xl" />
+                    </div>
+                    
+                    <h1 className="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-[#c62828] to-[#fbc02d] mb-4">MedLine Ultra</h1>
+                    <p className="text-slate-600 dark:text-slate-300 mb-8 leading-relaxed font-medium">
+                      Welcome to the ultimate messaging experience. Select a chat to begin.
+                    </p>
+                    
+                    {/* EST Modern Badges */}
+                    <div className="flex space-x-3">
+                      <span className="px-4 py-1.5 rounded-full bg-[#ffebee] text-[#c62828] dark:bg-[#7f0000]/30 dark:text-[#ffcdd2] text-xs font-extrabold uppercase tracking-wider shadow-sm">Fast</span>
+                      <span className="px-4 py-1.5 rounded-full bg-[#fff8e1] text-[#f57f17] dark:bg-[#fbc02d]/20 dark:text-[#fdd835] text-xs font-extrabold uppercase tracking-wider shadow-sm">Secure</span>
+                    </div>
+
+                 </div>
                </div>
-               <div className="absolute bottom-10 flex items-center space-x-1.5 text-[#8696a0] text-[13px]">
+               
+               <div className="absolute bottom-10 flex items-center space-x-1.5 text-[#8696a0] text-[13px] font-medium">
                  <Lock className="h-3 w-3" />
                  <span>End-to-end encrypted</span>
                </div>
@@ -1471,31 +1508,31 @@ export default function Chat() {
         {showContactInfo && activeConversation && !activeConversation.isGroup && (
            <div className="absolute inset-0 sm:relative sm:inset-auto flex w-full sm:w-[350px] border-l border-[#d1d7db] dark:border-[#222d34] bg-[#f0f2f5] dark:bg-[#111b21] flex-col z-[60] animate-in slide-in-from-right duration-300">
               <div className="h-16 px-6 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center shadow-sm shrink-0">
-                 <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(false)} className="mr-4 text-[#54656f] dark:text-[#aebac1]">
+                 <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(false)} className="mr-4 text-[#54656f] dark:text-[#aebac1] hover:text-[#c62828]">
                    <X className="h-5 w-5" />
                  </Button>
-                 <h2 className="text-[16px] font-medium text-[#111b21] dark:text-[#e9edef]">Contact info</h2>
+                 <h2 className="text-[16px] font-bold text-[#111b21] dark:text-[#e9edef]">Contact info</h2>
               </div>
               <div className="flex-1 overflow-y-auto">
                  <div className="bg-white dark:bg-[#111b21] flex flex-col items-center py-8 shadow-sm mb-2">
-                    <div className="h-48 w-48 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mb-4 flex items-center justify-center">
-                       {activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-24 w-24 text-white dark:text-[#aebac1]" />}
+                    <div className="h-48 w-48 rounded-full bg-[#ffebee] dark:bg-[#54656f] overflow-hidden mb-4 flex items-center justify-center border-4 border-transparent hover:border-[#fbc02d] transition-colors">
+                       {activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-24 w-24 text-[#c62828] dark:text-[#aebac1]" />}
                     </div>
-                    <h2 className="text-[20px] text-[#111b21] dark:text-[#e9edef] font-medium">{activeConversation.user?.name || 'User'}</h2>
-                    <p className="text-[16px] text-[#667781] dark:text-[#8696a0] mt-1">{activeConversation.user?.phone}</p>
+                    <h2 className="text-[20px] text-[#111b21] dark:text-[#e9edef] font-bold">{activeConversation.user?.name || 'User'}</h2>
+                    <p className="text-[16px] text-[#667781] dark:text-[#8696a0] mt-1 font-medium">{activeConversation.user?.phone}</p>
                  </div>
                  <div className="bg-white dark:bg-[#111b21] p-5 shadow-sm mb-2">
-                    <p className="text-[14px] text-[#667781] dark:text-[#8696a0] mb-1">About and phone number</p>
-                    <p className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Hey there! I am using MedLine.</p>
+                    <p className="text-[14px] text-[#c62828] dark:text-[#fbc02d] font-bold mb-1">About and phone number</p>
+                    <p className="text-[16px] text-[#111b21] dark:text-[#e9edef] font-medium">Hey there! I am using MedLine.</p>
                  </div>
                  
                  {/* FUNCTIONAL BLOCK BUTTON */}
                  <div 
-                    className="bg-white dark:bg-[#111b21] p-4 shadow-sm text-red-500 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] flex items-center transition-colors" 
+                    className="bg-white dark:bg-[#111b21] p-4 shadow-sm text-red-600 cursor-pointer hover:bg-[#ffebee] dark:hover:bg-[#3e1111] flex items-center transition-colors" 
                     onClick={() => toggleBlock(activeConversation.user?.id)}
                  >
                     <Lock className="h-5 w-5 mr-4" />
-                    <span className="text-[16px] font-medium">
+                    <span className="text-[16px] font-bold">
                       {blockedUsers.includes(activeConversation.user?.id) ? `Unblock ${activeConversation.user?.name || 'User'}` : `Block ${activeConversation.user?.name || 'User'}`}
                     </span>
                  </div>
@@ -1505,16 +1542,16 @@ export default function Chat() {
 
         {/* CALL UI OVERLAY */}
         {(incomingCall || currentCall) && (
-          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900 text-white">
+          <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-slate-900 text-white">
             {incomingCall && !currentCall && (
               <div className="flex flex-col items-center space-y-8">
-                <div className="h-32 w-32 overflow-hidden rounded-full bg-slate-800">
-                  <UserIcon className="h-full w-full p-6 text-slate-500" />
+                <div className="h-32 w-32 overflow-hidden rounded-full bg-slate-800 border-4 border-[#fbc02d] shadow-[0_0_30px_rgba(251,192,45,0.5)]">
+                  <UserIcon className="h-full w-full p-6 text-[#c62828]" />
                 </div>
-                <h2 className="text-2xl font-semibold animate-pulse">Incoming Call...</h2>
+                <h2 className="text-2xl font-bold animate-pulse text-[#fbc02d]">Incoming Call...</h2>
                 <div className="flex space-x-6">
-                  <Button onClick={answerCall} className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-600"><Phone className="h-8 w-8" /></Button>
-                  <Button onClick={rejectCall} className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600"><Phone className="h-8 w-8 rotate-[135deg]" /></Button>
+                  <Button onClick={answerCall} className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-600 shadow-lg hover:scale-105 transition-transform"><Phone className="h-8 w-8" /></Button>
+                  <Button onClick={rejectCall} className="h-16 w-16 rounded-full bg-[#c62828] hover:bg-red-700 shadow-lg hover:scale-105 transition-transform"><Phone className="h-8 w-8 rotate-[135deg]" /></Button>
                 </div>
               </div>
             )}
@@ -1530,36 +1567,36 @@ export default function Chat() {
                       playsInline 
                       muted 
                       style={{ filter: FILTER_OPTIONS[filterIndex] }}
-                      className={`absolute bottom-8 right-8 h-48 w-32 rounded-xl object-cover shadow-2xl border-2 border-white/20 transition-opacity ${isVideoOff ? 'opacity-0' : 'opacity-100'}`} 
+                      className={`absolute bottom-8 right-8 h-48 w-32 rounded-xl object-cover shadow-[0_0_20px_rgba(251,192,45,0.3)] border-2 border-[#fbc02d] transition-opacity ${isVideoOff ? 'opacity-0' : 'opacity-100'}`} 
                     />
                   </>
                 )}
 
                 {!isVideo && (
                   <div className="flex h-full flex-col items-center justify-center space-y-8">
-                    <div className="h-32 w-32 overflow-hidden rounded-full bg-slate-800"><UserIcon className="h-full w-full p-6 text-slate-500" /></div>
-                    <h2 className="text-2xl font-semibold">{remoteStream ? 'In Call' : 'Calling...'}</h2>
-                    <p className="text-slate-400 font-mono text-xl">{remoteStream ? formatDuration(callDuration) : 'Connecting...'}</p>
+                    <div className="h-32 w-32 overflow-hidden rounded-full bg-slate-800 border-4 border-[#fbc02d]"><UserIcon className="h-full w-full p-6 text-[#c62828]" /></div>
+                    <h2 className="text-2xl font-bold text-[#fbc02d]">{remoteStream ? 'In Call' : 'Calling...'}</h2>
+                    <p className="text-slate-300 font-mono text-xl font-medium">{remoteStream ? formatDuration(callDuration) : 'Connecting...'}</p>
                   </div>
                 )}
 
                 <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 space-x-4 sm:space-x-6 z-10">
-                  <Button onClick={toggleMute} className={`h-16 w-16 rounded-full transition-colors ${isMuted ? 'bg-red-500' : 'bg-slate-600'}`}>
+                  <Button onClick={toggleMute} className={`h-16 w-16 rounded-full transition-all hover:scale-105 ${isMuted ? 'bg-[#c62828]' : 'bg-slate-700/80 backdrop-blur-md hover:bg-slate-600'}`}>
                     {isMuted ? <MicOff className="h-8 w-8 text-white" /> : <Mic className="h-8 w-8 text-white" />}
                   </Button>
 
                   {isVideo && (
                     <>
-                      <Button onClick={toggleVideo} className={`h-16 w-16 rounded-full transition-colors ${isVideoOff ? 'bg-red-500' : 'bg-slate-600'}`}>
+                      <Button onClick={toggleVideo} className={`h-16 w-16 rounded-full transition-all hover:scale-105 ${isVideoOff ? 'bg-[#c62828]' : 'bg-slate-700/80 backdrop-blur-md hover:bg-slate-600'}`}>
                         {isVideoOff ? <VideoOff className="h-8 w-8 text-white" /> : <Video className="h-8 w-8 text-white" />}
                       </Button>
-                      <Button onClick={cycleFilter} className="h-16 w-16 rounded-full bg-indigo-500 hover:bg-indigo-600">
-                        <Wand2 className="h-8 w-8 text-white" />
+                      <Button onClick={cycleFilter} className="h-16 w-16 rounded-full bg-[#fbc02d] hover:bg-yellow-500 shadow-[0_0_15px_rgba(251,192,45,0.5)] transition-all hover:scale-105">
+                        <Wand2 className="h-8 w-8 text-[#111b21]" />
                       </Button>
                     </>
                   )}
 
-                  <Button onClick={() => endCall()} className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600">
+                  <Button onClick={() => endCall()} className="h-16 w-16 rounded-full bg-[#c62828] hover:bg-red-700 shadow-[0_0_15px_rgba(198,40,40,0.5)] transition-all hover:scale-105">
                     <Phone className="h-8 w-8 rotate-[135deg] text-white" />
                   </Button>
                 </div>
