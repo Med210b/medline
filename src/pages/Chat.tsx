@@ -5,14 +5,18 @@ import { useCall } from '@/src/contexts/CallContext';
 import { supabase } from '@/src/lib/supabase';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
-import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search, Reply, X, MessageSquarePlus, Lock, ArrowLeft, Camera, Bell, Moon, Circle, CheckCircle2, Archive, Pin, MoreVertical, Smile, FileText, StopCircle, Wand2 } from 'lucide-react';
+import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search, Reply, X, MessageSquarePlus, Lock, Laptop, Smartphone, ArrowLeft, Camera, Bell, Moon, ChevronRight, Circle, CheckCircle2, Archive, Pin, MoreVertical, Smile, FileText, StopCircle, Wand2 } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { playNotificationSound, showNotification } from '@/src/hooks/useNotifications';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 
+// Import the ringtone directly from your assets folder!
+import customRingtone from '@/src/assets/Ringtone.mp3';
+
 const APP_LOGO = 'https://i.postimg.cc/YqT7ff74/unnamed.jpg';
+const CUSTOM_RINGTONE = customRingtone;
 
 const formatChatTime = (dateString: string) => {
   if (!dateString) return '';
@@ -51,6 +55,7 @@ export default function Chat() {
   
   // UI Panels
   const [showContactInfo, setShowContactInfo] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 
   // User Profile & Privacy State
   const [myProfile, setMyProfile] = useState<any>(null);
@@ -59,7 +64,7 @@ export default function Chat() {
   const [privacyOnline, setPrivacyOnline] = useState<'everyone' | 'same_as_last_seen'>('everyone');
   const [privacyProfilePhoto, setPrivacyProfilePhoto] = useState<'everyone' | 'contacts' | 'nobody'>('everyone');
 
-  // Settings States
+  // Settings States (Persisted)
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(localStorage.getItem('whatsapp_theme') as any || 'system');
   const [soundsEnabled, setSoundsEnabled] = useState(localStorage.getItem('whatsapp_sounds') !== 'false');
   
@@ -129,13 +134,13 @@ export default function Chat() {
   const playReceiveSound = () => {
     if (!soundsEnabled) return;
     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
-    audio.play().catch(() => {});
+    audio.play().catch(e => console.warn("Browser blocked receive sound", e));
   };
 
   const playSendSound = () => {
     if (!soundsEnabled) return;
     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
-    audio.play().catch(() => {});
+    audio.play().catch(e => console.warn("Browser blocked send sound", e));
   };
 
   useEffect(() => {
@@ -144,20 +149,20 @@ export default function Chat() {
     }
   }, []);
 
-  // Call Ringtone logic
+  // Call Ringtone logic using your custom file
   useEffect(() => {
     if (incomingCall && !currentCall) {
       if (!ringtoneRef.current) {
-        ringtoneRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/phone_ringing.ogg');
+        ringtoneRef.current = new Audio(CUSTOM_RINGTONE);
         ringtoneRef.current.loop = true;
       }
-      ringtoneRef.current.play().catch(e => console.error("Autoplay blocked.", e));
+      ringtoneRef.current.play().catch(e => console.warn("Browser blocked incoming ringtone autoplay.", e));
     } else if (currentCall && !remoteStream && isCaller) {
       if (!ringtoneRef.current) {
         ringtoneRef.current = new Audio('https://actions.google.com/sounds/v1/communications/telephone_ring.ogg');
         ringtoneRef.current.loop = true;
       }
-      ringtoneRef.current.play().catch(e => console.error("Autoplay blocked.", e));
+      ringtoneRef.current.play().catch(e => console.warn("Browser blocked outgoing ringtone autoplay.", e));
     } else {
       if (ringtoneRef.current) {
         ringtoneRef.current.pause();
@@ -227,6 +232,7 @@ export default function Chat() {
     const handleClick = () => {
       setContextMenu(null);
       setMessageContextMenu(null);
+      setShowHeaderMenu(false);
     };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
@@ -278,9 +284,7 @@ export default function Chat() {
         const newMsg = payload.new;
         
         // INTERCEPT AND BLOCK MESSAGES FROM BLOCKED USERS
-        if (blockedUsersRef.current.includes(newMsg.sender_id)) {
-           return; 
-        }
+        if (blockedUsersRef.current.includes(newMsg.sender_id)) return; 
 
         const currentActiveChat = activeConversationRef.current;
         
@@ -1504,7 +1508,7 @@ export default function Chat() {
           )}
         </div>
 
-        {/* RIGHT SIDEBAR: CONTACT INFO (Slide in over chat on mobile, beside chat on desktop) */}
+        {/* RIGHT SIDEBAR: CONTACT INFO */}
         {showContactInfo && activeConversation && !activeConversation.isGroup && (
            <div className="absolute inset-0 sm:relative sm:inset-auto flex w-full sm:w-[350px] border-l border-[#d1d7db] dark:border-[#222d34] bg-[#f0f2f5] dark:bg-[#111b21] flex-col z-[60] animate-in slide-in-from-right duration-300">
               <div className="h-16 px-6 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center shadow-sm shrink-0">
