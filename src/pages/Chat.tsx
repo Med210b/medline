@@ -203,7 +203,10 @@ export default function Chat() {
            const otherId = newMsg.conversation_id.replace('conv-', '').split('-').find((id: string) => id !== user?.id);
            if (otherId && !usersRef.current.find(u => u.id === otherId)) {
              supabase.from('users').select('*').eq('id', otherId).single().then(({data}) => {
-               if (data) setUsers(prev => [...prev, data]);
+               if (data) setUsers(prev => {
+                 if (prev.find(u => u.id === data.id)) return prev;
+                 return [...prev, data];
+               });
              });
            }
         }
@@ -333,18 +336,29 @@ export default function Chat() {
     fetchMessages(group.id);
   };
 
+  // 1. FIXED PHONE SEARCH LOGIC (removes spaces to prevent errors)
   const handleStartNewChat = async (e: React.FormEvent) => {
     e.preventDefault();
     setSearchError('');
     if (!searchPhone || !user) return;
-    const { data, error } = await supabase.from('users').select('*').eq('phone', searchPhone).neq('id', user.id).single();
-    if (error || !data) { setSearchError('No user found with this phone number.'); return; }
-    setUsers(prev => prev.find(u => u.id === data.id) ? prev : [...prev, data]);
+    
+    // Clean up whitespace in case it was typed weirdly
+    const cleanPhone = searchPhone.replace(/\s+/g, '');
+    
+    const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).neq('id', user.id).limit(1);
+    
+    if (error || !data || data.length === 0) { 
+      setSearchError('No MedLine user found with this phone number.'); 
+      return; 
+    }
+    
+    const contact = data[0];
+    setUsers(prev => prev.find(u => u.id === contact.id) ? prev : [...prev, contact]);
     setShowNewChat(false);
     setSearchPhone('');
     setSidebarView('chats');
     setActiveTab('chats');
-    startConversation(data);
+    startConversation(contact); // Automatically sets active conversation, switching the mobile view!
   };
 
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -561,7 +575,7 @@ export default function Chat() {
   };
 
   const deleteChatLocal = (convId: string) => {
-    // Local soft-delete by just clearing its history from this user's view
+    // Local soft-delete by clearing its history from this view
     setChatMeta(prev => {
       const newMeta = { ...prev };
       delete newMeta[convId];
@@ -577,7 +591,9 @@ export default function Chat() {
       const convId = item.isGroup ? item.id : `conv-${[user?.id, item.id].sort().join('-')}`;
       const matchesSearch = (item.name || item.phone || '').toLowerCase().includes(searchQuery.toLowerCase());
       const isArchived = archivedChats.includes(convId);
-      return matchesSearch && (isArchivedView ? isArchived : !isArchived);
+      // Ensure we only show chats that actually have a history (or are brand new additions)
+      const hasHistory = chatMeta[convId] !== undefined;
+      return matchesSearch && (isArchivedView ? isArchived : (!isArchived && hasHistory));
     }).sort((a, b) => {
       const idA = a.isGroup ? a.id : `conv-${[user?.id, a.id].sort().join('-')}`;
       const idB = b.isGroup ? b.id : `conv-${[user?.id, b.id].sort().join('-')}`;
@@ -605,8 +621,8 @@ export default function Chat() {
       {/* Main App Container */}
       <div className="relative z-10 flex h-full w-full sm:h-[calc(100vh-38px)] sm:w-[calc(100vw-38px)] sm:mt-[19px] sm:mb-[19px] mx-auto bg-[#f0f2f5] dark:bg-[#111b21] sm:shadow-md sm:rounded-sm overflow-hidden max-w-[1600px] transition-colors duration-200">
         
-        {/* SIDEBAR */}
-        <div className="w-full sm:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex flex-col shrink-0 h-full relative transition-colors duration-200">
+        {/* 2. FIXED MOBILE LAYOUT: SIDEBAR (hides on mobile when chat is active) */}
+        <div className={`w-full sm:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex-col shrink-0 h-full relative transition-colors duration-200 ${activeConversation ? 'hidden sm:flex' : 'flex'}`}>
           
           {/* Main Chats/Calls View */}
           {(sidebarView === 'chats' || sidebarView === 'calls') ? (
@@ -646,7 +662,7 @@ export default function Chat() {
                 >Calls</button>
               </div>
               
-              <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21] transition-colors duration-200">
+              <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21] transition-colors duration-200 pb-20 sm:pb-0">
                 {activeTab === 'chats' ? (
                   <>
                     {/* Archived Link */}
@@ -663,7 +679,7 @@ export default function Chat() {
                     )}
 
                     {activeChatListItems.length === 0 ? (
-                      <div className="p-8 text-center text-[14px] text-[#667781] dark:text-[#8696a0]">No active chats found.</div>
+                      <div className="p-8 text-center text-[14px] text-[#667781] dark:text-[#8696a0]">Search to start a new chat!</div>
                     ) : (
                       activeChatListItems.map(item => {
                         const isGroup = item.isGroup;
@@ -679,6 +695,9 @@ export default function Chat() {
                             className={`flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] ${activeConversation?.id === convId ? 'bg-[#f0f2f5] dark:bg-[#2a3942]' : ''} transition-colors duration-200`} 
                             onClick={() => isGroup ? startGroupConversation(item) : startConversation(item)}
                             onContextMenu={(e) => handleContextMenu(e, item, convId)}
+                            onTouchStart={() => {
+                              // Optional: Simple long-press logic for mobile can be added here
+                            }}
                           >
                               <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">
                                 {isGroup ? (
@@ -691,15 +710,15 @@ export default function Chat() {
                                   <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />
                                 )}
                               </div>
-                              <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2">
+                              <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 min-w-0">
                                 <div className="flex justify-between items-center mb-1">
                                   <h3 className={`text-[17px] text-[#111b21] dark:text-[#e9edef] ${hasUnread ? 'font-bold' : 'font-normal'} truncate`}>{item.name || item.phone}</h3>
-                                  {meta?.lastMessage && <span className={`text-xs ml-2 ${hasUnread ? 'text-[#25d366] font-medium' : 'text-[#667781] dark:text-[#8696a0]'}`}>{formatChatTime(meta.lastMessage.timestamp)}</span>}
+                                  {meta?.lastMessage && <span className={`text-xs ml-2 shrink-0 ${hasUnread ? 'text-[#25d366] font-medium' : 'text-[#667781] dark:text-[#8696a0]'}`}>{formatChatTime(meta.lastMessage.timestamp)}</span>}
                                 </div>
-                                <div className="flex justify-between items-center">
-                                  <p className="text-[14px] text-[#667781] dark:text-[#8696a0] truncate pr-4 flex items-center">
+                                <div className="flex justify-between items-center min-w-0">
+                                  <p className="text-[14px] text-[#667781] dark:text-[#8696a0] truncate pr-4 flex items-center min-w-0">
                                       {meta?.lastMessage?.sender_id === user?.id && (
-                                        <span className="mr-1 inline-block align-middle">
+                                        <span className="mr-1 inline-block align-middle shrink-0">
                                           {meta.lastMessage.status === 'read' ? <CheckCheck className="h-4 w-4 text-[#53bdeb]" /> : meta.lastMessage.status === 'delivered' ? <CheckCheck className="h-4 w-4 text-[#8696a0]" /> : <Check className="h-4 w-4 text-[#8696a0]" />}
                                         </span>
                                       )}
@@ -786,10 +805,10 @@ export default function Chat() {
                             <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">
                                {isGroup ? <span className="text-[#00a884] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span> : item.avatar_url ? <img src={item.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}
                             </div>
-                            <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2">
+                            <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 min-w-0">
                               <div className="flex justify-between items-center mb-1">
                                 <h3 className="text-[17px] text-[#111b21] dark:text-[#e9edef] truncate">{item.name || item.phone}</h3>
-                                {meta?.lastMessage && <span className="text-xs ml-2 text-[#667781] dark:text-[#8696a0]">{formatChatTime(meta.lastMessage.timestamp)}</span>}
+                                {meta?.lastMessage && <span className="text-xs ml-2 text-[#667781] dark:text-[#8696a0] shrink-0">{formatChatTime(meta.lastMessage.timestamp)}</span>}
                               </div>
                               <p className="text-[14px] text-[#667781] dark:text-[#8696a0] truncate pr-4">{renderLastMessagePreview(meta?.lastMessage)}</p>
                             </div>
@@ -1009,13 +1028,13 @@ export default function Chat() {
 
         </div>
 
-        {/* MAIN CHAT AREA / EMPTY STATE */}
-        <div className="flex-1 flex flex-col bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden h-full border-l border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200" 
+        {/* 3. FIXED MOBILE LAYOUT: MAIN CHAT AREA (hides on mobile when NO chat is active) */}
+        <div className={`flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden h-full sm:border-l border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 ${!activeConversation ? 'hidden sm:flex' : 'flex w-full sm:w-auto'}`} 
              style={{ 
                 backgroundImage: activeConversation 
                   ? (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) 
                      ? 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")' 
-                     : 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")') // WhatsApp tile pattern
+                     : 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")')
                   : 'none', 
                 backgroundRepeat: 'repeat', 
                 backgroundSize: '400px', 
@@ -1024,28 +1043,33 @@ export default function Chat() {
           {activeConversation ? (
             <>
               {/* Chat Header */}
-              <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between z-10 transition-colors duration-200">
-                <div className="flex items-center cursor-pointer">
-                  <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center">
+              <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between z-10 transition-colors duration-200 shrink-0">
+                <div className="flex items-center cursor-pointer min-w-0">
+                  {/* MOBILE BACK BUTTON */}
+                  <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0" onClick={() => setActiveConversation(null)}>
+                    <ArrowLeft className="h-6 w-6 text-[#54656f] dark:text-[#aebac1]" />
+                  </Button>
+                  
+                  <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center shrink-0">
                       {activeConversation.isGroup ? <span className="text-[#00a884] font-semibold flex items-center justify-center h-full text-lg">{activeConversation.name.charAt(0).toUpperCase()}</span> : activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-white" />}
                   </div>
-                  <div>
-                    <h2 className="text-[16px] font-medium text-[#111b21] dark:text-[#e9edef] leading-tight">
+                  <div className="min-w-0 pr-2">
+                    <h2 className="text-[16px] font-medium text-[#111b21] dark:text-[#e9edef] leading-tight truncate">
                       {activeConversation.isGroup ? activeConversation.name : (activeConversation.user?.name || activeConversation.user?.phone)}
                     </h2>
-                    <p className="text-[13px] text-[#667781] dark:text-[#8696a0]">
+                    <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate">
                       {remoteTyping ? <span className="text-[#00a884]">typing...</span> : activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'online' : 'offline')}
                     </p>
                   </div>
                 </div>
-                <div className="flex space-x-2 text-[#54656f] dark:text-[#aebac1]">
+                <div className="flex space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0">
                   {!activeConversation.isGroup && (
                     <>
                       <Button variant="ghost" size="icon" onClick={() => initiateCall(activeConversation.user.id, true)}><Video className="h-5 w-5" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => initiateCall(activeConversation.user.id, false)}><Phone className="h-5 w-5" /></Button>
                     </>
                   )}
-                  <Button variant="ghost" size="icon"><Search className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5" /></Button>
                 </div>
               </div>
 
@@ -1074,15 +1098,15 @@ export default function Chat() {
                           )}
 
                           {/* Message Content */}
-                          <div className="flex flex-col relative">
-                             {msg.type === 'image' ? <img src={msg.content} className="max-w-[250px] rounded mb-1" /> : msg.type === 'reply' ? <span className="pb-3 pr-12">{JSON.parse(msg.content).text}</span> : <span className="pb-3 pr-12">{msg.content}</span>}
+                          <div className="flex flex-col relative min-w-[70px]">
+                             {msg.type === 'image' ? <img src={msg.content} className="max-w-[250px] rounded mb-1" /> : msg.type === 'reply' ? <span className="pb-3 pr-14 break-words">{JSON.parse(msg.content).text}</span> : <span className="pb-3 pr-14 break-words">{msg.content}</span>}
                              
                              {/* Timestamps and Ticks */}
-                             <div className="absolute bottom-[-2px] right-0 flex items-center text-[11px] text-[#667781] dark:text-[#8696a0]">
+                             <div className="absolute bottom-[-2px] right-0 flex items-center text-[10px] text-[#667781] dark:text-[#8696a0]">
                                <span>{format(new Date(msg.timestamp), 'HH:mm')}</span>
                                {isMe && (
                                  <span className="ml-1">
-                                   {msg.status === 'read' ? <CheckCheck className="h-[15px] w-[15px] text-[#53bdeb]" /> : msg.status === 'delivered' ? <CheckCheck className="h-[15px] w-[15px]" /> : <Check className="h-[15px] w-[15px]" />}
+                                   {msg.status === 'read' ? <CheckCheck className="h-[14px] w-[14px] text-[#53bdeb]" /> : msg.status === 'delivered' ? <CheckCheck className="h-[14px] w-[14px]" /> : <Check className="h-[14px] w-[14px]" />}
                                  </span>
                                )}
                              </div>
@@ -1096,7 +1120,7 @@ export default function Chat() {
               </div>
 
               {/* Input Area */}
-              <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-4 py-3 z-10 flex flex-col border-t border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200">
+              <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-2 sm:px-4 py-2 sm:py-3 z-10 flex flex-col border-t border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 shrink-0">
                 {/* Replying Preview Box */}
                 {replyingTo && (
                   <div className="bg-[#f0f2f5] dark:bg-[#202c33] mb-2 px-2 flex transition-colors duration-200">
@@ -1108,21 +1132,21 @@ export default function Chat() {
                   </div>
                 )}
                 
-                <form onSubmit={sendMessage} className="flex items-center space-x-3">
-                  <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0]"><Paperclip className="h-6 w-6" /></Button>
-                  <div className="relative">
+                <form onSubmit={sendMessage} className="flex items-center space-x-1 sm:space-x-3">
+                  <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] shrink-0"><Paperclip className="h-6 w-6" /></Button>
+                  <div className="relative shrink-0">
                     <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0]"><ImageIcon className="h-6 w-6" /></Button>
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 cursor-pointer opacity-0" />
                   </div>
                   <Input value={newMessage} onChange={handleTyping} placeholder="Type a message" className="flex-1 rounded-lg bg-white dark:bg-[#2a3942] border-none py-3 px-4 shadow-sm focus-visible:ring-0 text-[15px] text-[#111b21] dark:text-[#e9edef] placeholder:text-[#8696a0]" />
-                  <Button type="submit" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] hover:text-[#00a884] dark:hover:text-[#00a884]">
+                  <Button type="submit" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] hover:text-[#00a884] dark:hover:text-[#00a884] shrink-0">
                     {newMessage.trim() ? <Send className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
                   </Button>
                 </form>
               </div>
             </>
           ) : (
-            // EMPTY STATE
+            // EMPTY STATE (Only visible on Desktop when no chat is active)
             <div className="flex h-full flex-col items-center justify-center border-b-[6px] border-[#25d366] z-10 bg-[#f0f2f5] dark:bg-[#222d34] w-full transition-colors duration-200">
                <div className="text-center flex flex-col items-center">
                   <div className="mb-8 w-80 h-44 flex items-center justify-center">
@@ -1193,9 +1217,10 @@ export default function Chat() {
                   <div className="flex w-full border border-[#d1d7db] dark:border-[#222d34] rounded-md bg-transparent px-3 py-2 focus-within:ring-2 focus-within:ring-[#00a884] transition-colors">
                     <PhoneInput international defaultCountry="AE" placeholder="Enter phone number" value={searchPhone} onChange={(val) => setSearchPhone(val || '')} className="w-full text-sm outline-none bg-transparent text-[#111b21] dark:text-[#e9edef]" inputComponent={Input} style={{ border: 'none', boxShadow: 'none' }} />
                   </div>
+                  {searchError && <p className="text-red-500 text-xs mt-2">{searchError}</p>}
                 </div>
                 <div className="mt-6 flex justify-end space-x-3">
-                  <Button variant="ghost" type="button" onClick={() => { setShowNewChat(false); setSearchPhone(''); }} className="text-[#54656f] dark:text-[#8696a0]">Cancel</Button>
+                  <Button variant="ghost" type="button" onClick={() => { setShowNewChat(false); setSearchError(''); setSearchPhone(''); }} className="text-[#54656f] dark:text-[#8696a0]">Cancel</Button>
                   <Button type="submit" disabled={!searchPhone} className="bg-[#00a884] hover:bg-[#058b6e] text-white">Find & Chat</Button>
                 </div>
               </form>
