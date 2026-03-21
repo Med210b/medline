@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/contexts/AuthContext';
 
-// We use Google's Public STUN servers to bypass Wi-Fi and 4G/5G Firewalls
+// Google's Public STUN servers to bypass Wi-Fi and Firewalls
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -33,13 +33,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const FILTER_OPTIONS = [
     'none',
-    'blur(2px) saturate(110%)', // Portrait Soft
+    'blur(2px) saturate(110%)',
     'grayscale(100%)',
     'sepia(100%)',
     'invert(100%)',
-    'hue-rotate(90deg) saturate(130%)', // Green Screen-ish
-    'contrast(80%) saturate(80%)', // Low Contrast
-    'grayscale(100%) contrast(160%)', // Noir (High Contrast B&W)
+    'hue-rotate(90deg) saturate(130%)',
+    'contrast(80%) saturate(80%)',
+    'grayscale(100%) contrast(160%)',
   ];
 
   // SIGNALING SETUP
@@ -51,7 +51,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     });
 
     channel.on('broadcast', { event: 'call-signal' }, async ({ payload }) => {
-      // Ignore signals not meant for us
       if (payload.targetId !== user.id) return;
 
       if (payload.type === 'offer') {
@@ -82,11 +81,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  // VIDEO FRAME PROCESSING LOOP
+  // VIDEO FRAME PROCESSING LOOP (FIXED: Element must not be display: none)
   useEffect(() => {
     const internalVideo = internalVideoRef.current;
     const canvas = canvasRef.current;
-    if (!internalVideo || !canvas || !unprocessedStreamRef.current || !currentCall) return;
+    if (!internalVideo || !canvas || !unprocessedStreamRef.current || !currentCall || !isVideo) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -95,7 +94,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const videoTrack = stream.getVideoTracks()[0];
     if (!videoTrack) return;
 
-    // Use internal video for processing
     internalVideo.srcObject = stream;
     internalVideo.muted = true;
     internalVideo.play().catch(e => console.error("Error playing internal video:", e));
@@ -104,23 +102,26 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     canvas.width = settings.width || 640;
     canvas.height = settings.height || 480;
 
+    let animationFrameId: number;
+
     const processFrame = () => {
         if (!pcRef.current || !currentCall) {
             internalVideo.pause();
             internalVideo.srcObject = null;
-            return; // Stop if the call ended
+            return;
         }
         
         ctx.filter = FILTER_OPTIONS[filterIndex];
         ctx.drawImage(internalVideo, 0, 0, canvas.width, canvas.height);
-        requestAnimationFrame(processFrame);
+        animationFrameId = requestAnimationFrame(processFrame);
     };
     
     internalVideo.onloadedmetadata = () => {
-        requestAnimationFrame(processFrame);
+        animationFrameId = requestAnimationFrame(processFrame);
     };
 
     return () => {
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
         internalVideo.pause();
         internalVideo.srcObject = null;
     }
@@ -141,7 +142,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       pcRef.current.close();
       pcRef.current = null;
     }
-    // Stop all media tracks to turn off camera/mic recording light
     if (unprocessedStreamRef.current) {
       unprocessedStreamRef.current.getTracks().forEach(track => track.stop());
     }
@@ -164,11 +164,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     setCurrentCall({ targetId, peerConnection: null });
 
     try {
-      // 1. Get raw, unprocessed media stream
       const rawStream = await navigator.mediaDevices.getUserMedia({ video, audio: true });
       unprocessedStreamRef.current = rawStream;
 
-      // 2. Initialize connection
       const pc = new RTCPeerConnection(ICE_SERVERS);
       pcRef.current = pc;
       setCurrentCall({ targetId, peerConnection: pc });
@@ -178,11 +176,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (video && canvasRef.current) {
         // Create canvas capture stream with applied filters
         const canvasStream = (canvasRef.current as any).captureStream(30);
-        // Combine video from canvas and audio from raw stream
         const audioTrack = rawStream.getAudioTracks()[0];
-        if (audioTrack) {
-          canvasStream.addTrack(audioTrack);
-        }
+        if (audioTrack) canvasStream.addTrack(audioTrack);
         streamToSend = canvasStream;
       } else {
         streamToSend = rawStream;
@@ -190,24 +185,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
       setLocalStream(streamToSend);
       
-      // 3. Add stream tracks to connection
       streamToSend.getTracks().forEach(track => pc.addTrack(track, streamToSend));
 
-      // 4. Handle incoming remote stream
       pc.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
           setRemoteStream(event.streams[0]);
         }
       };
 
-      // 5. Handle and send networking Ice candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           sendSignal(targetId, 'ice-candidate', event.candidate);
         }
       };
 
-      // 6. Create call offer and send to other person
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendSignal(targetId, 'offer', { offer, video });
@@ -235,12 +226,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       let streamToSend;
       
       if (incomingCall.isVideo && canvasRef.current) {
-        // Create canvas capture stream with applied filters
         const canvasStream = (canvasRef.current as any).captureStream(30);
         const audioTrack = rawStream.getAudioTracks()[0];
-        if (audioTrack) {
-          canvasStream.addTrack(audioTrack);
-        }
+        if (audioTrack) canvasStream.addTrack(audioTrack);
         streamToSend = canvasStream;
       } else {
         streamToSend = rawStream;
@@ -257,15 +245,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       };
 
       pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          sendSignal(incomingCall.callerId, 'ice-candidate', event.candidate);
-        }
+        if (event.candidate) sendSignal(incomingCall.callerId, 'ice-candidate', event.candidate);
       };
 
-      // Set the caller's offer
       await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
-      
-      // Create and send our call answer back
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       sendSignal(incomingCall.callerId, 'answer', answer);
@@ -281,8 +264,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const rejectCall = async () => {
     if (incomingCall && user) {
       sendSignal(incomingCall.callerId, 'reject-call', null);
-      
-      // Log missed call to database history
       const conversationId = `conv_${[user.id, incomingCall.callerId].sort().join('_')}`;
       await supabase.from('messages').insert([{
          conversation_id: conversationId,
@@ -300,8 +281,6 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const targetId = currentCall?.targetId || incomingCall?.callerId;
     if (targetId && user) {
       sendSignal(targetId, 'end-call', null);
-      
-      // Log ended call to database history
       const conversationId = `conv_${[user.id, targetId].sort().join('_')}`;
       await supabase.from('messages').insert([{
          conversation_id: conversationId,
@@ -321,24 +300,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CallContext.Provider value={{
-      initiateCall,
-      incomingCall,
-      currentCall,
-      answerCall,
-      rejectCall,
-      endCall,
-      localStream,
-      remoteStream,
-      isVideo,
-      isCaller,
-      cycleFilter,
-      filterIndex,
-      FILTER_OPTIONS
+      initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, 
+      localStream, remoteStream, isVideo, isCaller, cycleFilter, filterIndex, FILTER_OPTIONS
     }}>
       {children}
-      {/* Invisible elements for frame-by-frame processing */}
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
-      <video ref={internalVideoRef} style={{ display: 'none' }} muted playsInline />
+      {/* FIX: Elements must NOT be display: none for requestAnimationFrame to work in browsers */}
+      <canvas ref={canvasRef} className="absolute opacity-0 pointer-events-none w-2 h-2 -z-50" />
+      <video ref={internalVideoRef} muted playsInline className="absolute opacity-0 pointer-events-none w-2 h-2 -z-50" />
     </CallContext.Provider>
   );
 }
