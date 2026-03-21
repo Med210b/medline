@@ -7,6 +7,7 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search, Reply, X, MessageSquarePlus, Lock, Laptop, Smartphone, ArrowLeft, Camera, Bell, Moon, ChevronRight, Circle, CheckCircle2, Archive, Pin, MoreVertical, Smile, FileText, StopCircle } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
+import { playNotificationSound, showNotification } from '@/src/hooks/useNotifications';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -36,6 +37,10 @@ export default function Chat() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   
+  // UI Panels
+  const [showContactInfo, setShowContactInfo] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+
   // User Profile & Privacy State
   const [myProfile, setMyProfile] = useState<any>(null);
   const [editName, setEditName] = useState('');
@@ -47,13 +52,14 @@ export default function Chat() {
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(localStorage.getItem('whatsapp_theme') as any || 'system');
   const [soundsEnabled, setSoundsEnabled] = useState(localStorage.getItem('whatsapp_sounds') !== 'false');
   
-  // Chat Organization States (Persisted)
+  // Chat Organization States
   const [archivedChats, setArchivedChats] = useState<string[]>(JSON.parse(localStorage.getItem('whatsapp_archived') || '[]'));
   const [pinnedChats, setPinnedChats] = useState<string[]>(JSON.parse(localStorage.getItem('whatsapp_pinned') || '[]'));
   const [manualUnread, setManualUnread] = useState<string[]>(JSON.parse(localStorage.getItem('whatsapp_unread') || '[]'));
   
-  // Context Menu State
+  // Context Menus
   const [contextMenu, setContextMenu] = useState<{ show: boolean, x: number, y: number, chat: any, convId: string } | null>(null);
+  const [messageContextMenu, setMessageContextMenu] = useState<{ show: boolean, x: number, y: number, msg: any } | null>(null);
 
   // Contacts & Meta
   const [users, setUsers] = useState<any[]>([]);
@@ -76,7 +82,7 @@ export default function Chat() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Stable Refs for Realtime Listeners
+  // Stable Refs
   const usersRef = useRef<any[]>([]);
   const chatMetaRef = useRef<any>({});
   const activeConversationRef = useRef<any>(null);
@@ -97,11 +103,13 @@ export default function Chat() {
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const remoteTypingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const channelRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Touch Swipe State
+  const touchStartX = useRef<number>(0);
 
   // AUDIO & NOTIFICATION HANDLERS
   const playReceiveSound = () => {
@@ -116,14 +124,12 @@ export default function Chat() {
     audio.play().catch(() => {});
   };
 
-  // Request Notification Permissions on Load
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
       Notification.requestPermission();
     }
   }, []);
 
-  // Handle Call Ringtone
   useEffect(() => {
     if (incomingCall && !currentCall) {
       if (!ringtoneRef.current) {
@@ -139,7 +145,6 @@ export default function Chat() {
     }
   }, [incomingCall, currentCall]);
 
-  // Audio Recording Timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isRecording) {
@@ -150,7 +155,6 @@ export default function Chat() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  // Apply Theme
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -161,20 +165,21 @@ export default function Chat() {
     localStorage.setItem('whatsapp_theme', theme);
   }, [theme]);
 
-  // Persist Local Arrays
   useEffect(() => { localStorage.setItem('whatsapp_archived', JSON.stringify(archivedChats)); }, [archivedChats]);
   useEffect(() => { localStorage.setItem('whatsapp_pinned', JSON.stringify(pinnedChats)); }, [pinnedChats]);
   useEffect(() => { localStorage.setItem('whatsapp_unread', JSON.stringify(manualUnread)); }, [manualUnread]);
   useEffect(() => { localStorage.setItem('whatsapp_sounds', soundsEnabled.toString()); }, [soundsEnabled]);
 
-  // Handle outside clicks for context menu
   useEffect(() => {
-    const handleClick = () => setContextMenu(null);
+    const handleClick = () => {
+      setContextMenu(null);
+      setMessageContextMenu(null);
+      setShowHeaderMenu(false);
+    };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
   }, []);
 
-  // Initial Load & Presence
   useEffect(() => {
     if (!user) return;
     const fetchMyProfile = async () => {
@@ -210,7 +215,6 @@ export default function Chat() {
     };
   }, [user, privacyOnline]);
 
-  // Load Data & Subscribe to Realtime
   useEffect(() => {
     if (!user) return;
     
@@ -223,18 +227,21 @@ export default function Chat() {
         const newMsg = payload.new;
         const currentActiveChat = activeConversationRef.current;
         
-        setChatMeta(prev => {
-          const isMyMsg = newMsg.sender_id === user?.id;
-          const isActiveChat = currentActiveChat?.id === newMsg.conversation_id;
-          const currentCount = prev[newMsg.conversation_id]?.unreadCount || 0;
-          return {
-            ...prev,
-            [newMsg.conversation_id]: {
-              lastMessage: newMsg,
-              unreadCount: (!isMyMsg && !isActiveChat) ? currentCount + 1 : currentCount
-            }
-          };
-        });
+        // Don't update unread counts for reactions
+        if (newMsg.type !== 'reaction') {
+          setChatMeta(prev => {
+            const isMyMsg = newMsg.sender_id === user?.id;
+            const isActiveChat = currentActiveChat?.id === newMsg.conversation_id;
+            const currentCount = prev[newMsg.conversation_id]?.unreadCount || 0;
+            return {
+              ...prev,
+              [newMsg.conversation_id]: {
+                lastMessage: newMsg,
+                unreadCount: (!isMyMsg && !isActiveChat) ? currentCount + 1 : currentCount
+              }
+            };
+          });
+        }
 
         if (newMsg.conversation_id === currentActiveChat?.id) {
           setMessages(prev => {
@@ -247,11 +254,11 @@ export default function Chat() {
              }
              return [...prev, newMsg];
           });
-          scrollToBottom();
-          if (newMsg.sender_id !== user?.id) {
+          if (newMsg.type !== 'reaction') scrollToBottom();
+          if (newMsg.sender_id !== user?.id && newMsg.type !== 'reaction') {
             supabase.from('messages').update({ status: document.visibilityState === 'visible' ? 'read' : 'delivered' }).eq('id', newMsg.id).then();
           }
-        } else if (newMsg.sender_id !== user?.id) {
+        } else if (newMsg.sender_id !== user?.id && newMsg.type !== 'reaction') {
           playReceiveSound();
           if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
              const senderUser = usersRef.current.find(u => u.id === newMsg.sender_id);
@@ -280,12 +287,14 @@ export default function Chat() {
         if (payload.new.conversation_id === currentActiveChat?.id) {
           setMessages(prev => prev.map(m => m.id === payload.new.id ? payload.new : m));
         }
-        setChatMeta(prev => {
-           if (prev[payload.new.conversation_id]?.lastMessage?.id === payload.new.id) {
-               return { ...prev, [payload.new.conversation_id]: { ...prev[payload.new.conversation_id], lastMessage: payload.new } };
-           }
-           return prev;
-        });
+        if (payload.new.type !== 'reaction') {
+          setChatMeta(prev => {
+             if (prev[payload.new.conversation_id]?.lastMessage?.id === payload.new.id) {
+                 return { ...prev, [payload.new.conversation_id]: { ...prev[payload.new.conversation_id], lastMessage: payload.new } };
+             }
+             return prev;
+          });
+        }
       })
       .subscribe();
 
@@ -315,7 +324,8 @@ export default function Chat() {
             const messageId = entry.target.getAttribute('data-message-id');
             const senderId = entry.target.getAttribute('data-sender-id');
             const status = entry.target.getAttribute('data-status');
-            if (messageId && senderId !== user?.id && status !== 'read') {
+            const type = entry.target.getAttribute('data-type');
+            if (messageId && senderId !== user?.id && status !== 'read' && type !== 'reaction') {
               visibleUnreadIds.push(messageId);
               observer.current?.unobserve(entry.target);
             }
@@ -338,6 +348,7 @@ export default function Chat() {
       const uniqueUserIds = new Set<string>();
 
       allUserMsgs.forEach(m => {
+        if (m.type === 'reaction') return; // Ignore reactions for chat list preview
         if (!meta[m.conversation_id]) meta[m.conversation_id] = { lastMessage: m, unreadCount: 0 };
         meta[m.conversation_id].lastMessage = m;
         if (m.sender_id !== user.id && m.status !== 'read') {
@@ -379,7 +390,7 @@ export default function Chat() {
     if (error) console.error("Fetch Messages Error:", error);
     if (data) {
       setMessages(data);
-      const unreadIds = data.filter(m => m.sender_id !== user?.id && m.status !== 'read').map(m => m.id);
+      const unreadIds = data.filter(m => m.sender_id !== user?.id && m.status !== 'read' && m.type !== 'reaction').map(m => m.id);
       if (unreadIds.length > 0) supabase.from('messages').update({ status: 'read' }).in('id', unreadIds).then();
     }
     scrollToBottom();
@@ -390,6 +401,7 @@ export default function Chat() {
     setActiveConversation({ id: conversationId, user: otherUser });
     setReplyingTo(null);
     setShowEmojiPicker(false);
+    setShowContactInfo(false);
     setChatMeta(prev => ({ ...prev, [conversationId]: { ...prev[conversationId], unreadCount: 0 } }));
     setManualUnread(prev => prev.filter(id => id !== conversationId)); 
     fetchMessages(conversationId);
@@ -399,6 +411,7 @@ export default function Chat() {
     setActiveConversation({ id: group.id, isGroup: true, name: group.name, participants: group.participants });
     setReplyingTo(null);
     setShowEmojiPicker(false);
+    setShowContactInfo(false);
     setChatMeta(prev => ({ ...prev, [group.id]: { ...prev[group.id], unreadCount: 0 } }));
     setManualUnread(prev => prev.filter(id => id !== group.id));
     fetchMessages(group.id);
@@ -412,15 +425,8 @@ export default function Chat() {
     const cleanPhone = searchPhone.replace(/\s+/g, '');
     const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).neq('id', user.id).limit(1);
     
-    if (error) {
-      alert(`Database Search Error: ${error.message}`);
-      return;
-    }
-
-    if (!data || data.length === 0) { 
-      setSearchError('No MedLine user found with this phone number.'); 
-      return; 
-    }
+    if (error) { alert(`Database Search Error: ${error.message}`); return; }
+    if (!data || data.length === 0) { setSearchError('No MedLine user found with this phone number.'); return; }
     
     const contact = data[0];
     setUsers(prev => prev.find(u => u.id === contact.id) ? prev : [...prev, contact]);
@@ -516,6 +522,36 @@ export default function Chat() {
     if (error) alert(`Failed to send message!\nError: ${error.message}`);
   };
 
+  // SEND REACTION
+  const sendReaction = async (msgId: string, emoji: string) => {
+    setMessageContextMenu(null);
+    if (!activeConversation || !user) return;
+    
+    const reactionContent = JSON.stringify({ targetId: msgId, emoji });
+    const tempId = `react-${Date.now()}`;
+    
+    const newReactionObj = {
+      id: tempId,
+      conversation_id: activeConversation.id,
+      sender_id: user.id,
+      content: reactionContent,
+      type: 'reaction',
+      status: 'sent',
+      timestamp: new Date().toISOString()
+    };
+    
+    setMessages(prev => [...prev, newReactionObj]);
+    
+    await supabase.from('messages').insert([{
+      conversation_id: activeConversation.id,
+      sender_id: user.id,
+      content: reactionContent,
+      type: 'reaction',
+      status: 'sent',
+      timestamp: newReactionObj.timestamp
+    }]);
+  };
+
   // AUDIO RECORDING LOGIC
   const startRecording = async () => {
     try {
@@ -569,7 +605,7 @@ export default function Chat() {
     }
   };
 
-  // GENERIC FILE UPLOAD LOGIC (Images, PDFs, etc.)
+  // GENERIC FILE UPLOAD
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0 || !activeConversation) return;
     const file = e.target.files[0];
@@ -616,10 +652,7 @@ export default function Chat() {
       timestamp: new Date().toISOString()
     };
     const { error } = await supabase.from('messages').insert([msg]);
-    if (error) {
-      alert(`Failed to create group: ${error.message}`);
-      return;
-    }
+    if (error) { alert(`Failed to create group: ${error.message}`); return; }
     setShowCreateGroup(false);
     setNewGroupName('');
     setSelectedUsers([]);
@@ -696,44 +729,55 @@ export default function Chat() {
     }
   };
 
+  // MENU HANDLERS
   const handleContextMenu = (e: React.MouseEvent, chat: any, convId: string) => {
     e.preventDefault();
     setContextMenu({ show: true, x: e.pageX, y: e.pageY, chat, convId });
   };
+  
+  const handleMessageContextMenu = (e: React.MouseEvent | React.TouchEvent, msg: any) => {
+    if (e.type === 'contextmenu') e.preventDefault();
+    
+    let x, y;
+    if ('touches' in e) {
+      x = e.touches[0].pageX;
+      y = e.touches[0].pageY;
+    } else {
+      x = (e as React.MouseEvent).pageX;
+      y = (e as React.MouseEvent).pageY;
+    }
+    setMessageContextMenu({ show: true, x, y, msg });
+  };
+
+  // SWIPE LOGIC
+  const handleTouchStart = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
+  const handleTouchEnd = (e: React.TouchEvent, msg: any) => {
+    const touchEndX = e.changedTouches[0].clientX;
+    if (touchEndX - touchStartX.current > 50) { // Swipe Right to Reply
+      setReplyingTo(msg);
+    }
+  };
 
   const toggleArchive = (convId: string) => {
-    if (archivedChats.includes(convId)) {
-      setArchivedChats(prev => prev.filter(id => id !== convId));
-    } else {
-      setArchivedChats(prev => [...prev, convId]);
-    }
+    if (archivedChats.includes(convId)) setArchivedChats(prev => prev.filter(id => id !== convId));
+    else setArchivedChats(prev => [...prev, convId]);
     setContextMenu(null);
   };
 
   const togglePin = (convId: string) => {
-    if (pinnedChats.includes(convId)) {
-      setPinnedChats(prev => prev.filter(id => id !== convId));
-    } else {
-      setPinnedChats(prev => [...prev, convId]);
-    }
+    if (pinnedChats.includes(convId)) setPinnedChats(prev => prev.filter(id => id !== convId));
+    else setPinnedChats(prev => [...prev, convId]);
     setContextMenu(null);
   };
 
   const toggleUnread = (convId: string) => {
-    if (manualUnread.includes(convId)) {
-      setManualUnread(prev => prev.filter(id => id !== convId));
-    } else {
-      setManualUnread(prev => [...prev, convId]);
-    }
+    if (manualUnread.includes(convId)) setManualUnread(prev => prev.filter(id => id !== convId));
+    else setManualUnread(prev => [...prev, convId]);
     setContextMenu(null);
   };
 
   const deleteChatLocal = (convId: string) => {
-    setChatMeta(prev => {
-      const newMeta = { ...prev };
-      delete newMeta[convId];
-      return newMeta;
-    });
+    setChatMeta(prev => { const newMeta = { ...prev }; delete newMeta[convId]; return newMeta; });
     setContextMenu(null);
     if (activeConversation?.id === convId) setActiveConversation(null);
   };
@@ -762,6 +806,9 @@ export default function Chat() {
 
   const activeChatListItems = processChatList([...conversations, ...users], false);
   const archivedChatListItems = processChatList([...conversations, ...users], true);
+  
+  const displayMessages = messages.filter(m => m.type !== 'reaction');
+  const allReactions = messages.filter(m => m.type === 'reaction');
 
   // ================= RENDER =================
   return (
@@ -772,7 +819,7 @@ export default function Chat() {
       {/* Main App Container */}
       <div className="relative z-10 flex h-full w-full sm:h-[calc(100vh-38px)] sm:w-[calc(100vw-38px)] sm:mt-[19px] sm:mb-[19px] mx-auto bg-[#f0f2f5] dark:bg-[#111b21] sm:shadow-md sm:rounded-sm overflow-hidden max-w-[1600px] transition-colors duration-200">
         
-        {/* MOBILE LAYOUT: SIDEBAR (hides on mobile when chat is active) */}
+        {/* SIDEBAR (Hides on Mobile if Chat Open) */}
         <div className={`w-full sm:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex-col shrink-0 h-full relative transition-colors duration-200 ${activeConversation ? 'hidden sm:flex' : 'flex'}`}>
           
           {/* Main Chats/Calls View */}
@@ -793,35 +840,21 @@ export default function Chat() {
               <div className="p-2 bg-white dark:bg-[#111b21] transition-colors duration-200">
                 <div className="relative flex items-center bg-[#f0f2f5] dark:bg-[#202c33] rounded-lg px-3 py-1.5 transition-colors duration-200">
                   <Search className="h-4 w-4 text-[#54656f] dark:text-[#8696a0]" />
-                  <Input 
-                    placeholder="Search or start new chat" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-transparent border-none shadow-none focus-visible:ring-0 text-[15px] h-8 ml-2 placeholder:text-[#8696a0] text-[#111b21] dark:text-[#e9edef]"
-                  />
+                  <Input placeholder="Search or start new chat" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none shadow-none focus-visible:ring-0 text-[15px] h-8 ml-2 placeholder:text-[#8696a0] text-[#111b21] dark:text-[#e9edef]" />
                 </div>
               </div>
 
               <div className="flex bg-white dark:bg-[#111b21] border-b border-[#f2f2f2] dark:border-[#222d34] shrink-0 transition-colors duration-200">
-                <button
-                  className={`flex-1 py-3 text-[14px] font-medium transition-colors border-b-2 ${activeTab === 'chats' ? 'text-[#00a884] border-[#00a884]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`}
-                  onClick={() => setActiveTab('chats')}
-                >Chats</button>
-                <button
-                  className={`flex-1 py-3 text-[14px] font-medium transition-colors border-b-2 ${activeTab === 'calls' ? 'text-[#00a884] border-[#00a884]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`}
-                  onClick={() => setActiveTab('calls')}
-                >Calls</button>
+                <button className={`flex-1 py-3 text-[14px] font-medium transition-colors border-b-2 ${activeTab === 'chats' ? 'text-[#00a884] border-[#00a884]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('chats')}>Chats</button>
+                <button className={`flex-1 py-3 text-[14px] font-medium transition-colors border-b-2 ${activeTab === 'calls' ? 'text-[#00a884] border-[#00a884]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('calls')}>Calls</button>
               </div>
               
               <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21] transition-colors duration-200 pb-20 sm:pb-0">
                 {activeTab === 'chats' ? (
                   <>
-                    {/* Archived Link */}
                     {archivedChats.length > 0 && (
                       <div className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors duration-200" onClick={() => setSidebarView('archived')}>
-                         <div className="h-12 w-12 shrink-0 mr-3 flex items-center justify-center text-[#00a884]">
-                           <Archive className="h-5 w-5" />
-                         </div>
+                         <div className="h-12 w-12 shrink-0 mr-3 flex items-center justify-center text-[#00a884]"><Archive className="h-5 w-5" /></div>
                          <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 flex justify-between items-center">
                            <h3 className="text-[17px] text-[#111b21] dark:text-[#e9edef] font-medium">Archived</h3>
                            <span className="text-[#00a884] text-[12px] font-medium">{archivedChats.length}</span>
@@ -848,15 +881,7 @@ export default function Chat() {
                             onContextMenu={(e) => handleContextMenu(e, item, convId)}
                           >
                               <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">
-                                {isGroup ? (
-                                  <div className="h-full w-full bg-[#d9fdd3] dark:bg-[#005c4b] flex items-center justify-center">
-                                    <span className="text-[#00a884] dark:text-[#e9edef] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span>
-                                  </div>
-                                ) : item.avatar_url ? (
-                                  <img src={item.avatar_url} alt={item.name} className="h-full w-full object-cover" />
-                                ) : (
-                                  <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />
-                                )}
+                                {isGroup ? <div className="h-full w-full bg-[#d9fdd3] dark:bg-[#005c4b] flex items-center justify-center"><span className="text-[#00a884] dark:text-[#e9edef] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span></div> : item.avatar_url ? <img src={item.avatar_url} alt={item.name} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}
                               </div>
                               <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 min-w-0">
                                 <div className="flex justify-between items-center mb-1">
@@ -893,7 +918,6 @@ export default function Chat() {
                       const otherUser = users.find(u => u.id === otherUserId);
                       let callData = { type: 'voice', duration: 0 };
                       try { callData = JSON.parse(call.content); } catch (e) {}
-                      
                       const isIncoming = call.sender_id !== user?.id;
                       const isMissed = call.status === 'missed';
                       
@@ -906,14 +930,8 @@ export default function Chat() {
                             <div className="flex-1">
                               <h3 className={`text-[17px] ${isMissed ? 'text-red-500' : 'text-[#111b21] dark:text-[#e9edef]'}`}>{otherUser?.name || otherUser?.phone || 'Unknown'}</h3>
                               <div className="flex items-center text-[13px] text-[#667781] dark:text-[#8696a0] mt-0.5">
-                                {isIncoming ? (
-                                  <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#25d366]'} rotate-[135deg]`} />
-                                ) : (
-                                  <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#8696a0]'}`} />
-                                )}
-                                <span>{callData.type === 'video' ? 'Video' : 'Voice'}</span>
-                                <span className="mx-1">•</span>
-                                <span>{formatChatTime(call.timestamp)}</span>
+                                {isIncoming ? <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#25d366]'} rotate-[135deg]`} /> : <Phone className={`h-3 w-3 mr-1 ${isMissed ? 'text-red-500' : 'text-[#8696a0]'}`} />}
+                                <span>{callData.type === 'video' ? 'Video' : 'Voice'}</span><span className="mx-1">•</span><span>{formatChatTime(call.timestamp)}</span>
                               </div>
                             </div>
                             <div className="flex items-center space-x-2 pl-2">
@@ -939,25 +957,16 @@ export default function Chat() {
                  </div>
                </div>
                <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111b21]">
-                 {archivedChatListItems.length === 0 ? (
-                   <div className="p-8 text-center text-[14px] text-[#667781] dark:text-[#8696a0]">No archived chats.</div>
-                 ) : (
+                 {archivedChatListItems.length === 0 ? <div className="p-8 text-center text-[14px] text-[#667781] dark:text-[#8696a0]">No archived chats.</div> : (
                     archivedChatListItems.map(item => {
                       const isGroup = item.isGroup;
                       const convId = isGroup ? item.id : `conv_${[user?.id, item.id].sort().join('_')}`;
                       const meta = chatMeta[convId];
                       return (
-                        <div key={item.id} className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors duration-200" 
-                             onClick={() => isGroup ? startGroupConversation(item) : startConversation(item)}
-                             onContextMenu={(e) => handleContextMenu(e, item, convId)}>
-                            <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">
-                               {isGroup ? <span className="text-[#00a884] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span> : item.avatar_url ? <img src={item.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}
-                            </div>
+                        <div key={item.id} className="flex cursor-pointer items-center px-3 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] transition-colors duration-200" onClick={() => isGroup ? startGroupConversation(item) : startConversation(item)} onContextMenu={(e) => handleContextMenu(e, item, convId)}>
+                            <div className="h-12 w-12 shrink-0 rounded-full overflow-hidden mr-3 flex items-center justify-center bg-[#dfe5e7] dark:bg-[#54656f]">{isGroup ? <span className="text-[#00a884] font-semibold text-lg">{item.name.charAt(0).toUpperCase()}</span> : item.avatar_url ? <img src={item.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-8 w-8 text-[#ffffff] dark:text-[#aebac1]" strokeWidth={1.5} />}</div>
                             <div className="flex-1 border-b border-[#f2f2f2] dark:border-[#222d34] pb-3 pt-1 pr-2 min-w-0">
-                              <div className="flex justify-between items-center mb-1">
-                                <h3 className="text-[17px] text-[#111b21] dark:text-[#e9edef] truncate">{item.name || item.phone}</h3>
-                                {meta?.lastMessage && <span className="text-xs ml-2 text-[#667781] dark:text-[#8696a0] shrink-0">{formatChatTime(meta.lastMessage.timestamp)}</span>}
-                              </div>
+                              <div className="flex justify-between items-center mb-1"><h3 className="text-[17px] text-[#111b21] dark:text-[#e9edef] truncate">{item.name || item.phone}</h3>{meta?.lastMessage && <span className="text-xs ml-2 text-[#667781] dark:text-[#8696a0] shrink-0">{formatChatTime(meta.lastMessage.timestamp)}</span>}</div>
                               <p className="text-[14px] text-[#667781] dark:text-[#8696a0] truncate pr-4">{renderLastMessagePreview(meta?.lastMessage)}</p>
                             </div>
                         </div>
@@ -978,15 +987,8 @@ export default function Chat() {
                <div className="flex-1 overflow-y-auto flex flex-col items-center">
                   <div className="w-full bg-white dark:bg-[#111b21] p-7 flex justify-center shadow-sm mb-3 transition-colors duration-200">
                     <div className="relative h-48 w-48 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden group cursor-pointer flex items-center justify-center">
-                      {myProfile?.avatar_url ? (
-                        <img src={myProfile.avatar_url} className="h-full w-full object-cover" />
-                      ) : (
-                        <UserIcon className="h-24 w-24 text-white dark:text-[#aebac1]" />
-                      )}
-                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                         <Camera className="h-6 w-6 text-white mb-2" />
-                         <span className="text-xs text-white uppercase text-center px-4 font-medium">Change Profile Photo</span>
-                      </div>
+                      {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-24 w-24 text-white dark:text-[#aebac1]" />}
+                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="h-6 w-6 text-white mb-2" /><span className="text-xs text-white uppercase text-center px-4 font-medium">Change Profile Photo</span></div>
                       <input type="file" accept="image/*" onChange={handleProfileImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                     </div>
                   </div>
@@ -1020,22 +1022,10 @@ export default function Chat() {
                     </div>
                   </div>
                   <div className="bg-white dark:bg-[#111b21] py-2 shadow-sm transition-colors duration-200">
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy')}>
-                        <Lock className="h-5 w-5 text-[#8696a0] mr-6" />
-                        <span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Privacy</span>
-                     </div>
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('notifications')}>
-                        <Bell className="h-5 w-5 text-[#8696a0] mr-6" />
-                        <span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Notifications</span>
-                     </div>
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('theme')}>
-                        <Moon className="h-5 w-5 text-[#8696a0] mr-6" />
-                        <span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Theme</span>
-                     </div>
-                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] text-red-500" onClick={signOut}>
-                        <LogOut className="h-5 w-5 mr-6" />
-                        <span className="text-[16px]">Log out</span>
-                     </div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('privacy')}><Lock className="h-5 w-5 text-[#8696a0] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Privacy</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('notifications')}><Bell className="h-5 w-5 text-[#8696a0] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Notifications</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]" onClick={() => setSidebarView('theme')}><Moon className="h-5 w-5 text-[#8696a0] mr-6" /><span className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Theme</span></div>
+                     <div className="flex items-center px-6 py-4 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] text-red-500" onClick={signOut}><LogOut className="h-5 w-5 mr-6" /><span className="text-[16px]">Log out</span></div>
                   </div>
                </div>
             </div>
@@ -1154,7 +1144,7 @@ export default function Chat() {
             </div>
           ) : null}
 
-          {/* GLOBAL CONTEXT MENU OVERLAY (Right Click / Long Press) */}
+          {/* GLOBAL CONTEXT MENU OVERLAY (Sidebar list) */}
           {contextMenu && (
              <div className="fixed z-50 bg-white dark:bg-[#233138] shadow-lg rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700" 
                   style={{ top: contextMenu.y, left: contextMenu.x }}
@@ -1173,10 +1163,9 @@ export default function Chat() {
                 </div>
              </div>
           )}
-
         </div>
 
-        {/* MAIN CHAT AREA / EMPTY STATE */}
+        {/* MAIN CHAT AREA */}
         <div className={`flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden h-full sm:border-l border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 ${!activeConversation ? 'hidden sm:flex' : 'flex w-full sm:w-auto'}`} 
              style={{ 
                 backgroundImage: activeConversation 
@@ -1192,12 +1181,10 @@ export default function Chat() {
             <>
               {/* Chat Header */}
               <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between z-10 transition-colors duration-200 shrink-0">
-                <div className="flex items-center cursor-pointer min-w-0">
-                  {/* MOBILE BACK BUTTON */}
-                  <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0" onClick={() => setActiveConversation(null)}>
+                <div className="flex items-center cursor-pointer min-w-0 flex-1" onClick={() => setShowContactInfo(true)}>
+                  <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0" onClick={(e) => { e.stopPropagation(); setActiveConversation(null); }}>
                     <ArrowLeft className="h-6 w-6 text-[#54656f] dark:text-[#aebac1]" />
                   </Button>
-                  
                   <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center shrink-0">
                       {activeConversation.isGroup ? <span className="text-[#00a884] font-semibold flex items-center justify-center h-full text-lg">{activeConversation.name.charAt(0).toUpperCase()}</span> : activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-white" />}
                   </div>
@@ -1206,29 +1193,43 @@ export default function Chat() {
                       {activeConversation.isGroup ? activeConversation.name : (activeConversation.user?.name || activeConversation.user?.phone)}
                     </h2>
                     <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate">
-                      {/* UPDATED ACCURATE LAST SEEN AND ONLINE STATUS */}
                       {remoteTyping ? <span className="text-[#00a884]">typing...</span> : activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'online' : `last seen ${formatChatTime(activeConversation.user?.last_seen) || 'recently'}`)}
                     </p>
                   </div>
                 </div>
-                <div className="flex space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0">
+                <div className="flex space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0 relative">
                   {!activeConversation.isGroup && (
                     <>
                       <Button variant="ghost" size="icon" onClick={() => initiateCall(activeConversation.user.id, true)}><Video className="h-5 w-5" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => initiateCall(activeConversation.user.id, false)}><Phone className="h-5 w-5" /></Button>
                     </>
                   )}
-                  <Button variant="ghost" size="icon"><MoreVertical className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="icon"><Search className="h-5 w-5" /></Button>
+                  
+                  {/* ... Header Menu */}
+                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setShowHeaderMenu(!showHeaderMenu); }}><MoreVertical className="h-5 w-5" /></Button>
+                  
+                  {showHeaderMenu && (
+                    <div className="absolute top-12 right-0 z-50 bg-white dark:bg-[#233138] shadow-lg rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+                      <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px]" onClick={() => { setShowContactInfo(true); setShowHeaderMenu(false); }}>
+                         Contact info
+                      </div>
+                      <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px]" onClick={() => { deleteChatLocal(activeConversation.id); setShowHeaderMenu(false); }}>
+                         Close chat
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-2 z-10" onClick={() => setShowEmojiPicker(false)}>
-                {messages.map((msg, idx) => {
+                {displayMessages.map((msg, idx) => {
                   const isMe = msg.sender_id === user?.id;
+                  const messageReactions = allReactions.filter(r => { try { return JSON.parse(r.content).targetId === msg.id; } catch(e) { return false; } });
                   
                   return (
-                    <div key={msg.id || idx} className={`flex group ${isMe ? 'justify-end' : 'justify-start'}`} ref={(el) => { if (el && !isMe && msg.status !== 'read' && observer.current) { observer.current.observe(el); } }} data-message-id={msg.id} data-sender-id={msg.sender_id} data-status={msg.status}>
+                    <div key={msg.id || idx} className={`flex group ${isMe ? 'justify-end' : 'justify-start'}`} ref={(el) => { if (el && !isMe && msg.status !== 'read' && observer.current) { observer.current.observe(el); } }} data-message-id={msg.id} data-sender-id={msg.sender_id} data-status={msg.status} data-type={msg.type}>
                       <div className="flex items-start max-w-[85%] sm:max-w-[65%] relative">
                         
                         {/* Hover Reply Button */}
@@ -1236,7 +1237,12 @@ export default function Chat() {
                           <Reply className="h-4 w-4" />
                         </button>
 
-                        <div className={`rounded-lg px-2 py-1.5 shadow-sm text-[14.2px] text-[#111b21] dark:text-[#e9edef] ${isMe ? 'bg-[#d9fdd3] dark:bg-[#005c4b] rounded-tr-none' : 'bg-white dark:bg-[#202c33] rounded-tl-none'} transition-colors duration-200`}>
+                        <div 
+                           className={`rounded-lg px-2 py-1.5 shadow-sm text-[14.2px] text-[#111b21] dark:text-[#e9edef] ${isMe ? 'bg-[#d9fdd3] dark:bg-[#005c4b] rounded-tr-none' : 'bg-white dark:bg-[#202c33] rounded-tl-none'} transition-colors duration-200 cursor-pointer relative`}
+                           onTouchStart={handleTouchStart}
+                           onTouchEnd={(e) => handleTouchEnd(e, msg)}
+                           onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                        >
                           
                           {/* Render Reply Context inside bubble */}
                           {msg.type === 'reply' && (
@@ -1273,6 +1279,16 @@ export default function Chat() {
                                )}
                              </div>
                           </div>
+
+                          {/* Render Inline Emoji Reactions */}
+                          {messageReactions.length > 0 && (
+                            <div className={`absolute -bottom-3 ${isMe ? 'right-0' : 'left-0'} flex items-center bg-white dark:bg-[#202c33] rounded-full px-1.5 py-0.5 shadow-sm border border-slate-100 dark:border-[#222d34] text-xs`}>
+                               {messageReactions.map((r, i) => (
+                                 <span key={i}>{JSON.parse(r.content).emoji}</span>
+                               ))}
+                            </div>
+                          )}
+
                         </div>
                       </div>
                     </div>
@@ -1280,6 +1296,26 @@ export default function Chat() {
                 })}
                 <div ref={messagesEndRef} className="h-4" />
               </div>
+
+              {/* Message Context Menu (Long press / right click) */}
+              {messageContextMenu && (
+                <div className="fixed z-50 bg-white dark:bg-[#233138] shadow-lg rounded-xl py-2 w-auto min-w-[200px] border border-slate-200 dark:border-slate-700" 
+                     style={{ top: messageContextMenu.y, left: messageContextMenu.x }}
+                     onClick={(e) => e.stopPropagation()}>
+                   {/* Quick Reactions Bar */}
+                   <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-700/50 mb-1">
+                     {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
+                       <button key={emoji} onClick={() => sendReaction(messageContextMenu.msg.id, emoji)} className="text-xl hover:scale-125 transition-transform duration-200 px-1">
+                         {emoji}
+                       </button>
+                     ))}
+                   </div>
+                   <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[15px]" 
+                        onClick={() => { setReplyingTo(messageContextMenu.msg); setMessageContextMenu(null); }}>
+                      Reply
+                   </div>
+                </div>
+              )}
 
               {/* Emoji Picker Pop-up */}
               {showEmojiPicker && (
@@ -1369,6 +1405,35 @@ export default function Chat() {
             </div>
           )}
         </div>
+
+        {/* RIGHT SIDEBAR: CONTACT INFO (Slide in) */}
+        {showContactInfo && activeConversation && !activeConversation.isGroup && (
+           <div className="hidden sm:flex w-[350px] border-l border-[#d1d7db] dark:border-[#222d34] bg-[#f0f2f5] dark:bg-[#111b21] flex-col z-20 animate-in slide-in-from-right duration-300">
+              <div className="h-16 px-6 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center shadow-sm shrink-0">
+                 <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(false)} className="mr-4 text-[#54656f] dark:text-[#aebac1]">
+                   <X className="h-5 w-5" />
+                 </Button>
+                 <h2 className="text-[16px] font-medium text-[#111b21] dark:text-[#e9edef]">Contact info</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                 <div className="bg-white dark:bg-[#111b21] flex flex-col items-center py-8 shadow-sm mb-2">
+                    <div className="h-48 w-48 rounded-full bg-[#dfe5e7] dark:bg-[#54656f] overflow-hidden mb-4 flex items-center justify-center">
+                       {activeConversation.user?.avatar_url ? <img src={activeConversation.user.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-24 w-24 text-white dark:text-[#aebac1]" />}
+                    </div>
+                    <h2 className="text-[20px] text-[#111b21] dark:text-[#e9edef] font-medium">{activeConversation.user?.name || 'User'}</h2>
+                    <p className="text-[16px] text-[#667781] dark:text-[#8696a0] mt-1">{activeConversation.user?.phone}</p>
+                 </div>
+                 <div className="bg-white dark:bg-[#111b21] p-5 shadow-sm mb-2">
+                    <p className="text-[14px] text-[#667781] dark:text-[#8696a0] mb-1">About and phone number</p>
+                    <p className="text-[16px] text-[#111b21] dark:text-[#e9edef]">Hey there! I am using MedLine.</p>
+                 </div>
+                 <div className="bg-white dark:bg-[#111b21] p-4 shadow-sm text-red-500 cursor-pointer hover:bg-[#f5f6f6] dark:hover:bg-[#202c33] flex items-center">
+                    <Lock className="h-5 w-5 mr-4" />
+                    <span className="text-[16px]">Block {activeConversation.user?.name || 'User'}</span>
+                 </div>
+              </div>
+           </div>
+        )}
 
         {/* CALL UI OVERLAY */}
         {(incomingCall || currentCall) && (
