@@ -7,7 +7,6 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Phone, Video, Send, Image as ImageIcon, Paperclip, LogOut, User as UserIcon, Check, CheckCheck, Mic, MicOff, VideoOff, Settings, Search, Reply, X, MessageSquarePlus, Lock, Laptop, Smartphone, ArrowLeft, Camera, Bell, Moon, ChevronRight, Circle, CheckCircle2, Archive, Pin, MoreVertical } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
-import { playNotificationSound, showNotification } from '@/src/hooks/useNotifications';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 
@@ -85,6 +84,7 @@ export default function Chat() {
   
   const callDurationRef = useRef(0);
   const previousCallRef = useRef<any>(null);
+  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
 
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
@@ -94,6 +94,42 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // AUDIO & NOTIFICATION HANDLERS
+  const playReceiveSound = () => {
+    if (!soundsEnabled) return;
+    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+    audio.play().catch(() => {});
+  };
+
+  const playSendSound = () => {
+    if (!soundsEnabled) return;
+    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+    audio.play().catch(() => {});
+  };
+
+  // Request Notification Permissions on Load
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Handle Call Ringtone
+  useEffect(() => {
+    if (incomingCall && !currentCall) {
+      if (!ringtoneRef.current) {
+        ringtoneRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/phone_ringing.ogg');
+        ringtoneRef.current.loop = true;
+      }
+      ringtoneRef.current.play().catch(() => console.log("User must interact with page before audio can play"));
+    } else {
+      if (ringtoneRef.current) {
+        ringtoneRef.current.pause();
+        ringtoneRef.current.currentTime = 0;
+      }
+    }
+  }, [incomingCall, currentCall]);
 
   // Apply Theme
   useEffect(() => {
@@ -135,7 +171,10 @@ export default function Chat() {
 
     const setOnlineStatus = async (status: boolean) => {
        if (privacyOnline !== 'everyone') return; 
-       await supabase.from('users').update({ is_online: status }).eq('id', user.id);
+       await supabase.from('users').update({ 
+         is_online: status,
+         last_seen: new Date().toISOString() // Save last seen strictly!
+       }).eq('id', user.id);
     };
     setOnlineStatus(true);
     
@@ -194,12 +233,18 @@ export default function Chat() {
             supabase.from('messages').update({ status: document.visibilityState === 'visible' ? 'read' : 'delivered' }).eq('id', newMsg.id).then();
           }
         } else if (newMsg.sender_id !== user?.id) {
-          if (soundsEnabled) playNotificationSound();
-          if (document.visibilityState !== 'visible') showNotification("New Message", "You have a new message");
+          // BACKGROUND NOTIFICATION & SOUND LOGIC
+          playReceiveSound();
+          if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+             const senderUser = usersRef.current.find(u => u.id === newMsg.sender_id);
+             new Notification(senderUser?.name || "MedLine", { 
+               body: newMsg.type === 'text' ? newMsg.content : 'Sent an attachment',
+               icon: senderUser?.avatar_url || undefined
+             });
+          }
           supabase.from('messages').update({ status: 'delivered' }).eq('id', newMsg.id).then();
         }
 
-        // FIXED UUID EXTRACTION BUG: Using _ instead of -
         if (newMsg.conversation_id.startsWith('conv_') && newMsg.conversation_id.includes(user?.id)) {
            const otherId = newMsg.conversation_id.replace('conv_', '').split('_').find((id: string) => id !== user?.id);
            if (otherId && !usersRef.current.find(u => u.id === otherId)) {
@@ -266,7 +311,6 @@ export default function Chat() {
     return () => observer.current?.disconnect();
   }, [user?.id]);
 
-  // FIXED UUID EXTRACTION BUG
   const fetchAllChatMetadata = async () => {
     if (!user) return;
     const { data: allUserMsgs, error } = await supabase.from('messages').select('*').ilike('conversation_id', `%${user.id}%`).order('timestamp', { ascending: true });
@@ -324,7 +368,6 @@ export default function Chat() {
     scrollToBottom();
   };
 
-  // FIXED UUID CREATION BUG: USING UNDERSCORE _
   const startConversation = async (otherUser: any) => {
     const conversationId = `conv_${[user?.id, otherUser.id].sort().join('_')}`;
     setActiveConversation({ id: conversationId, user: otherUser });
@@ -369,7 +412,6 @@ export default function Chat() {
     startConversation(contact); 
   };
 
-  // FIXED UUID CREATION BUG: USING UNDERSCORE _
   const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
     setNewMessage(e.target.value);
     if (!activeConversation || !channelRef.current) return;
@@ -387,7 +429,6 @@ export default function Chat() {
     }, 2000);
   };
 
-  // SEND MESSAGE
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeConversation || !user) return;
@@ -423,6 +464,7 @@ export default function Chat() {
     setNewMessage('');
     setReplyingTo(null);
     setMessages(prev => [...prev, newMsgObj]);
+    playSendSound(); // PLAY SEND SOUND
     
     setChatMeta(prev => ({
       ...prev,
@@ -470,6 +512,7 @@ export default function Chat() {
         status: 'sent',
         timestamp: new Date().toISOString() 
       }]);
+      playSendSound(); // PLAY SEND SOUND
       if (error) alert(`Failed to send image: ${error.message}`);
     } catch (err) { console.error('Error uploading image', err); }
   };
@@ -607,7 +650,6 @@ export default function Chat() {
     if (activeConversation?.id === convId) setActiveConversation(null);
   };
 
-  // FIXED UUID CREATION BUG: USING UNDERSCORE _
   const processChatList = (chats: any[], isArchivedView = false) => {
     return chats.filter(item => {
       const convId = item.isGroup ? item.id : `conv_${[user?.id, item.id].sort().join('_')}`;
@@ -1076,7 +1118,8 @@ export default function Chat() {
                       {activeConversation.isGroup ? activeConversation.name : (activeConversation.user?.name || activeConversation.user?.phone)}
                     </h2>
                     <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate">
-                      {remoteTyping ? <span className="text-[#00a884]">typing...</span> : activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'online' : 'offline')}
+                      {/* UPDATED ACCURATE LAST SEEN AND ONLINE STATUS */}
+                      {remoteTyping ? <span className="text-[#00a884]">typing...</span> : activeConversation.isGroup ? `${activeConversation.participants.length} members` : (activeConversation.user?.is_online ? 'online' : `last seen ${formatChatTime(activeConversation.user?.last_seen) || 'recently'}`)}
                     </p>
                   </div>
                 </div>
