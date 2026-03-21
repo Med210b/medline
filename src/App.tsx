@@ -2,6 +2,8 @@ import React from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/src/contexts/AuthContext';
 import { CallProvider } from '@/src/contexts/CallContext';
+import { SettingsProvider } from '@/src/contexts/SettingsContext';
+import { PresenceManager } from '@/src/components/PresenceManager';
 import Auth from '@/src/pages/Auth';
 import ProfileSetup from '@/src/pages/ProfileSetup';
 import Chat from '@/src/pages/Chat';
@@ -76,9 +78,13 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <CallProvider>
-        <AppContent />
-      </CallProvider>
+      <SettingsProvider>
+        {/* PresenceManager runs silently in the background managing online status */}
+        <PresenceManager />
+        <CallProvider>
+          <AppContent />
+        </CallProvider>
+      </SettingsProvider>
     </AuthProvider>
   );
 }

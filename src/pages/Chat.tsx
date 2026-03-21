@@ -57,6 +57,7 @@ export default function Chat() {
   const [privacyLastSeen, setPrivacyLastSeen] = useState<'everyone' | 'contacts' | 'nobody'>('everyone');
   const [privacyOnline, setPrivacyOnline] = useState<'everyone' | 'same_as_last_seen'>('everyone');
   const [privacyProfilePhoto, setPrivacyProfilePhoto] = useState<'everyone' | 'contacts' | 'nobody'>('everyone');
+  const [statusOverride, setStatusOverride] = useState<'online' | 'offline'>('online');
 
   // Settings States (Persisted)
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(localStorage.getItem('whatsapp_theme') as any || 'system');
@@ -199,6 +200,7 @@ export default function Chat() {
     return () => { if (interval) clearInterval(interval); };
   }, [currentCall, remoteStream]);
 
+  // Apply Theme
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -209,11 +211,13 @@ export default function Chat() {
     localStorage.setItem('whatsapp_theme', theme);
   }, [theme]);
 
+  // Persist Local Arrays
   useEffect(() => { localStorage.setItem('whatsapp_archived', JSON.stringify(archivedChats)); }, [archivedChats]);
   useEffect(() => { localStorage.setItem('whatsapp_pinned', JSON.stringify(pinnedChats)); }, [pinnedChats]);
   useEffect(() => { localStorage.setItem('whatsapp_unread', JSON.stringify(manualUnread)); }, [manualUnread]);
   useEffect(() => { localStorage.setItem('whatsapp_sounds', soundsEnabled.toString()); }, [soundsEnabled]);
 
+  // Handle outside clicks for context menu
   useEffect(() => {
     const handleClick = () => {
       setContextMenu(null);
@@ -224,6 +228,7 @@ export default function Chat() {
     return () => document.removeEventListener('click', handleClick);
   }, []);
 
+  // Initial Load & Presence
   useEffect(() => {
     if (!user) return;
     const fetchMyProfile = async () => {
@@ -239,6 +244,7 @@ export default function Chat() {
 
     const setOnlineStatus = async (status: boolean) => {
        if (privacyOnline !== 'everyone') return; 
+       if (statusOverride === 'offline') return;
        await supabase.from('users').update({ is_online: status, last_seen: new Date().toISOString() }).eq('id', user.id);
     };
     setOnlineStatus(true);
@@ -254,8 +260,9 @@ export default function Chat() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       setOnlineStatus(false);
     };
-  }, [user, privacyOnline]);
+  }, [user, privacyOnline, statusOverride, navigate]);
 
+  // Load Data & Subscribe to Realtime
   useEffect(() => {
     if (!user) return;
     
@@ -776,7 +783,6 @@ export default function Chat() {
   
   const handleMessageContextMenu = (e: React.MouseEvent | React.TouchEvent, msg: any) => {
     if (e.type === 'contextmenu') e.preventDefault();
-    
     let x, y;
     if ('touches' in e) {
       x = e.touches[0].pageX;
@@ -857,7 +863,7 @@ export default function Chat() {
       {/* Main App Container */}
       <div className="relative z-10 flex h-full w-full sm:h-[calc(100vh-38px)] sm:w-[calc(100vw-38px)] sm:mt-[19px] sm:mb-[19px] mx-auto bg-[#f0f2f5] dark:bg-[#111b21] sm:shadow-md sm:rounded-sm overflow-hidden max-w-[1600px] transition-colors duration-200">
         
-        {/* MOBILE LAYOUT: SIDEBAR (hides on mobile when chat is active) */}
+        {/* SIDEBAR (Hides on Mobile if Chat Open) */}
         <div className={`w-full sm:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex-col shrink-0 h-full relative transition-colors duration-200 ${activeConversation ? 'hidden sm:flex' : 'flex'}`}>
           
           {/* Main Chats/Calls View */}
@@ -1192,7 +1198,7 @@ export default function Chat() {
 
           {/* GLOBAL CONTEXT MENU OVERLAY (Sidebar list) */}
           {contextMenu && (
-             <div className="fixed z-50 bg-white dark:bg-[#233138] shadow-lg rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700" 
+             <div className="fixed z-[100] bg-white dark:bg-[#233138] shadow-lg rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700" 
                   style={{ top: contextMenu.y, left: contextMenu.x }}
                   onClick={(e) => e.stopPropagation()}>
                 <div className="px-4 py-2 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[14px]" onClick={() => toggleArchive(contextMenu.convId)}>
@@ -1209,6 +1215,7 @@ export default function Chat() {
                 </div>
              </div>
           )}
+
         </div>
 
         {/* MAIN CHAT AREA */}
@@ -1243,7 +1250,7 @@ export default function Chat() {
                     </p>
                   </div>
                 </div>
-                <div className="flex space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0 items-center">
+                <div className="flex space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0 relative items-center">
                   {!activeConversation.isGroup && (
                     <>
                       <Button variant="ghost" size="icon" onClick={() => initiateCall(activeConversation.user.id, true)}><Video className="h-5 w-5" /></Button>
@@ -1252,12 +1259,12 @@ export default function Chat() {
                   )}
                   <Button variant="ghost" size="icon"><Search className="h-5 w-5" /></Button>
                   
-                  {/* ... Header Menu wrapper with RELATIVE positioning */}
+                  {/* Header Menu wrapper with RELATIVE positioning */}
                   <div className="relative">
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setShowHeaderMenu(!showHeaderMenu); }}><MoreVertical className="h-5 w-5" /></Button>
                     
                     {showHeaderMenu && (
-                      <div className="absolute top-full right-0 mt-2 z-[100] bg-white dark:bg-[#233138] shadow-xl rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700 origin-top-right transform transition-all" onClick={(e) => e.stopPropagation()}>
+                      <div className="absolute top-full right-0 mt-2 z-[100] bg-white dark:bg-[#233138] shadow-xl rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700 origin-top-right" onClick={(e) => e.stopPropagation()}>
                         <div className="px-5 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[15px] transition-colors" onClick={() => { setShowContactInfo(true); setShowHeaderMenu(false); }}>
                            Contact info
                         </div>
@@ -1330,7 +1337,7 @@ export default function Chat() {
 
                           {/* Render Inline Emoji Reactions */}
                           {messageReactions.length > 0 && (
-                            <div className={`absolute -bottom-3 ${isMe ? 'right-0' : 'left-0'} flex items-center bg-white dark:bg-[#202c33] rounded-full px-1.5 py-0.5 shadow-sm border border-slate-100 dark:border-[#222d34] text-xs`}>
+                            <div className={`absolute -bottom-3 ${isMe ? 'right-0' : 'left-0'} flex items-center bg-white dark:bg-[#202c33] rounded-full px-1.5 py-0.5 shadow-sm border border-slate-100 dark:border-[#222d34] text-xs z-10`}>
                                {messageReactions.map((r, i) => (
                                  <span key={i}>{JSON.parse(r.content).emoji}</span>
                                ))}
@@ -1503,10 +1510,7 @@ export default function Chat() {
               <div className="relative h-full w-full bg-black">
                 {isVideo && (
                   <>
-                    {/* REMOTE VIDEO - Now explicitly handling stream object visually */}
                     <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
-                    
-                    {/* LOCAL VIDEO - WITH FILTERS */}
                     <video 
                       ref={localVideoRef} 
                       autoPlay 
@@ -1536,15 +1540,12 @@ export default function Chat() {
                       <Button onClick={toggleVideo} className={`h-16 w-16 rounded-full transition-colors ${isVideoOff ? 'bg-red-500' : 'bg-slate-600'}`}>
                         {isVideoOff ? <VideoOff className="h-8 w-8 text-white" /> : <Video className="h-8 w-8 text-white" />}
                       </Button>
-                      
-                      {/* MAGIC FILTER BUTTON */}
                       <Button onClick={cycleFilter} className="h-16 w-16 rounded-full bg-indigo-500 hover:bg-indigo-600">
                         <Wand2 className="h-8 w-8 text-white" />
                       </Button>
                     </>
                   )}
 
-                  {/* INSTANT RED HANGUP BUTTON */}
                   <Button onClick={() => endCall()} className="h-16 w-16 rounded-full bg-red-500 hover:bg-red-600">
                     <Phone className="h-8 w-8 rotate-[135deg] text-white" />
                   </Button>
