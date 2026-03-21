@@ -12,11 +12,7 @@ import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 
-// Import the ringtone directly from your assets folder!
-import customRingtone from '@/src/assets/Ringtone.mp3';
-
 const APP_LOGO = 'https://i.postimg.cc/YqT7ff74/unnamed.jpg';
-const CUSTOM_RINGTONE = customRingtone;
 
 const formatChatTime = (dateString: string) => {
   if (!dateString) return '';
@@ -28,20 +24,10 @@ const formatChatTime = (dateString: string) => {
 
 type SidebarView = 'chats' | 'calls' | 'settings' | 'profile' | 'privacy' | 'privacy-last-seen' | 'privacy-profile-photo' | 'theme' | 'notifications' | 'archived';
 
-const FILTER_OPTIONS = [
-  'none',
-  'grayscale(100%)',
-  'sepia(100%)',
-  'invert(100%)',
-  'hue-rotate(90deg)',
-  'hue-rotate(180deg)',
-  'contrast(150%) saturate(120%)'
-];
-
 export default function Chat() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const { initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, localStream, remoteStream, isVideo, isCaller } = useCall();
+  const { initiateCall, incomingCall, currentCall, answerCall, rejectCall, endCall, localStream, remoteStream, isVideo, isCaller, cycleFilter, filterIndex, FILTER_OPTIONS } = useCall();
   
   // Main States
   const [sidebarView, setSidebarView] = useState<SidebarView>('chats');
@@ -114,12 +100,8 @@ export default function Chat() {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
-  const [filterIndex, setFilterIndex] = useState(0); 
-  
   const callDurationRef = useRef(0);
-  const previousCallRef = useRef<any>(null);
-  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
-
+  
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -148,29 +130,6 @@ export default function Chat() {
       Notification.requestPermission();
     }
   }, []);
-
-  // Call Ringtone logic using your custom file
-  useEffect(() => {
-    if (incomingCall && !currentCall) {
-      if (!ringtoneRef.current) {
-        ringtoneRef.current = new Audio(CUSTOM_RINGTONE);
-        ringtoneRef.current.loop = true;
-      }
-      ringtoneRef.current.play().catch(e => console.warn("Browser blocked incoming ringtone autoplay.", e));
-    } else if (currentCall && !remoteStream && isCaller) {
-      if (!ringtoneRef.current) {
-        ringtoneRef.current = new Audio('https://actions.google.com/sounds/v1/communications/telephone_ring.ogg');
-        ringtoneRef.current.loop = true;
-      }
-      ringtoneRef.current.play().catch(e => console.warn("Browser blocked outgoing ringtone autoplay.", e));
-    } else {
-      if (ringtoneRef.current) {
-        ringtoneRef.current.pause();
-        ringtoneRef.current.currentTime = 0;
-        ringtoneRef.current = null;
-      }
-    }
-  }, [incomingCall, currentCall, remoteStream, isCaller]);
 
   useEffect(() => {
     if (localVideoRef.current && localStream) localVideoRef.current.srcObject = localStream;
@@ -204,7 +163,6 @@ export default function Chat() {
       setCallDuration(0);
       setIsMuted(false);
       setIsVideoOff(false);
-      setFilterIndex(0);
     }
     return () => { if (interval) clearInterval(interval); };
   }, [currentCall, remoteStream]);
@@ -740,12 +698,30 @@ export default function Chat() {
 
   const scrollToBottom = () => setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
 
+  const getCallDescription = (msg: any) => {
+    let callData;
+    try {
+        callData = JSON.parse(msg.content);
+    } catch (e) {
+        return 'Call';
+    }
+    const icon = callData.type === 'video' ? '📷' : '📞';
+    const typeText = callData.type === 'video' ? 'Video call' : 'Voice call';
+    
+    let statusText = '';
+    if (msg.status === 'missed') statusText = '(missed)';
+    else if (msg.status === 'ended') statusText = '(ended)';
+    else statusText = '(declined)';
+
+    return `${icon} ${typeText} ${statusText}`;
+  }
+
   const renderLastMessagePreview = (msg: any) => {
     if (!msg) return '';
     if (msg.type === 'image') return '📷 Photo';
     if (msg.type === 'audio') return '🎤 Voice message';
     if (msg.type === 'document') return '📄 Document';
-    if (msg.type === 'call') return '📞 Call';
+    if (msg.type === 'call') return getCallDescription(msg);
     if (msg.type === 'reply') {
       try { return JSON.parse(msg.content).text; } catch(e) { return 'Message'; }
     }
@@ -783,10 +759,6 @@ export default function Chat() {
         setIsVideoOff(false);
       } catch (err) { console.error('Failed to restart camera', err); }
     }
-  };
-
-  const cycleFilter = () => {
-    setFilterIndex((prev) => (prev + 1) % FILTER_OPTIONS.length);
   };
 
   const handleContextMenu = (e: React.MouseEvent, chat: any, convId: string) => {
@@ -1336,6 +1308,8 @@ export default function Chat() {
                                   <FileText className="h-8 w-8 text-[#c62828] dark:text-[#fbc02d]" />
                                   <span className="truncate max-w-[150px] text-sm font-medium">{JSON.parse(msg.content).name}</span>
                                </a>
+                             ) : msg.type === 'call' ? (
+                               <span className="pb-3 pr-14 break-words italic text-sm text-[#667781] dark:text-[#e9edef]/80">{getCallDescription(msg)}</span>
                              ) : msg.type === 'reply' ? (
                                <span className="pb-3 pr-14 break-words">{JSON.parse(msg.content).text}</span>
                              ) : (
@@ -1418,7 +1392,7 @@ export default function Chat() {
                          <button type="button" onClick={() => setReplyingTo(null)} className="absolute top-2 right-2 text-[#8696a0] hover:text-[#c62828]"><X className="h-4 w-4" /></button>
                          <p className="text-[13px] font-extrabold text-[#c62828] dark:text-[#fbc02d]">{replyingTo.sender_id === user?.id ? 'You' : 'User'}</p>
                          <p className="text-[13px] text-[#667781] dark:text-[#8696a0] truncate pr-8">
-                           {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice message' : replyingTo.type === 'document' ? '📄 Document' : replyingTo.type === 'reply' ? JSON.parse(replyingTo.content).text : replyingTo.content}
+                           {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice message' : replyingTo.type === 'document' ? '📄 Document' : replyingTo.type === 'call' ? getCallDescription(replyingTo) : replyingTo.type === 'reply' ? JSON.parse(replyingTo.content).text : replyingTo.content}
                          </p>
                        </div>
                     </div>
@@ -1570,7 +1544,6 @@ export default function Chat() {
                       autoPlay 
                       playsInline 
                       muted 
-                      style={{ filter: FILTER_OPTIONS[filterIndex] }}
                       className={`absolute bottom-8 right-8 h-48 w-32 rounded-xl object-cover shadow-[0_0_20px_rgba(251,192,45,0.3)] border-2 border-[#fbc02d] transition-opacity ${isVideoOff ? 'opacity-0' : 'opacity-100'}`} 
                     />
                   </>
