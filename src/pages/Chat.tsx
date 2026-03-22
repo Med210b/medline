@@ -842,7 +842,7 @@ export default function Chat() {
 
   // ================= RENDER =================
   return (
-    <div className="relative flex h-[100dvh] w-full bg-[#d1d7db] dark:bg-[#0a1014] overflow-x-hidden transition-colors duration-200">
+    <div className="relative flex h-[100dvh] w-full bg-[#f0f2f5] dark:bg-[#111b21] md:bg-[#d1d7db] md:dark:bg-[#0a1014] overflow-x-hidden transition-colors duration-200 pt-[45px] md:pt-0">
       <style>{`
         @keyframes float {
           0% { transform: translateY(0px); }
