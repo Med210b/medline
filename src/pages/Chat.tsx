@@ -117,7 +117,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (incomingCall && !currentCall) {
-      incomingAudioRef.current?.play().catch(e => console.warn("Autoplay blocked."));
+      incomingAudioRef.current?.play().catch(e => console.warn("Autoplay blocked. User needs to interact with page."));
     } else {
       if (incomingAudioRef.current) {
         incomingAudioRef.current.pause();
@@ -238,6 +238,7 @@ export default function Chat() {
     const messageSubscription = supabase.channel('public:messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const newMsg = payload.new;
+        
         if (blockedUsersRef.current.includes(newMsg.sender_id)) return; 
 
         const currentActiveChat = activeConversationRef.current;
@@ -853,12 +854,13 @@ export default function Chat() {
         }
       `}</style>
       
-      <div className="absolute top-0 left-0 w-full h-[127px] bg-[#c62828] dark:bg-[#1a0a0a] z-0 hidden sm:block transition-colors duration-200"></div>
+      {/* STRICT MD BREAKPOINTS REPLACING SM TO FORCE MOBILE LAYOUT */}
+      <div className="absolute top-0 left-0 w-full h-[127px] bg-[#c62828] dark:bg-[#1a0a0a] z-0 hidden md:block transition-colors duration-200"></div>
 
-      <div className="relative z-10 flex h-full w-full sm:h-[calc(100vh-38px)] sm:w-[calc(100vw-38px)] sm:mt-[19px] sm:mb-[19px] mx-auto bg-[#f0f2f5] dark:bg-[#111b21] sm:shadow-md sm:rounded-sm overflow-hidden max-w-[1600px] transition-colors duration-200">
+      <div className="relative z-10 flex h-full w-full md:h-[calc(100vh-38px)] md:w-[calc(100vw-38px)] md:mt-[19px] md:mb-[19px] mx-auto bg-[#f0f2f5] dark:bg-[#111b21] md:shadow-md md:rounded-sm overflow-hidden max-w-[1600px] transition-colors duration-200">
         
         {/* MOBILE LAYOUT: SIDEBAR */}
-        <div className={`w-full sm:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex-col shrink-0 h-full relative transition-colors duration-200 ${activeConversation ? 'hidden sm:flex' : 'flex'}`}>
+        <div className={`w-full md:w-[380px] lg:w-[400px] border-r border-[#d1d7db] dark:border-[#222d34] bg-white dark:bg-[#111b21] flex-col shrink-0 h-full relative transition-colors duration-200 ${activeConversation ? 'hidden md:flex' : 'flex'}`}>
           
           {(sidebarView === 'chats' || sidebarView === 'calls') ? (
             <>
@@ -868,7 +870,7 @@ export default function Chat() {
                       {myProfile?.avatar_url ? <img src={myProfile.avatar_url} className="h-full w-full object-cover" /> : <UserIcon className="h-6 w-6 text-[#c62828] dark:text-[#aebac1]" />}
                   </div>
                   
-                  <div className="hidden sm:flex items-center justify-center h-8 w-8 ml-2 rounded-full overflow-hidden border border-[#fbc02d] shadow-sm bg-white shrink-0">
+                  <div className="hidden md:flex items-center justify-center h-8 w-8 ml-2 rounded-full overflow-hidden border border-[#fbc02d] shadow-sm bg-white shrink-0">
                     <img src={APP_LOGO} alt="EST Logo" className="h-full w-full object-cover scale-[1.2]" />
                   </div>
 
@@ -891,7 +893,7 @@ export default function Chat() {
                 <button className={`flex-1 py-3 text-[14px] font-bold transition-colors border-b-[3px] ${activeTab === 'calls' ? 'text-[#c62828] border-[#c62828] dark:text-[#fbc02d] dark:border-[#fbc02d]' : 'text-[#54656f] dark:text-[#8696a0] border-transparent hover:bg-[#f5f6f6] dark:hover:bg-[#202c33]'}`} onClick={() => setActiveTab('calls')}>Calls</button>
               </div>
               
-              <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white dark:bg-[#111b21] transition-colors duration-200 pb-20 sm:pb-0 w-full">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden bg-white dark:bg-[#111b21] transition-colors duration-200 pb-20 md:pb-0 w-full">
                 {activeTab === 'chats' ? (
                   <>
                     {archivedChats.length > 0 && (
@@ -1038,7 +1040,7 @@ export default function Chat() {
                       <input type="file" accept="image/*" onChange={handleProfileImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                     </div>
                   </div>
-                  <div className="w-full bg-white dark:bg-[#111b21] p-4 sm:px-7 shadow-sm transition-colors duration-200">
+                  <div className="w-full bg-white dark:bg-[#111b21] p-4 md:px-7 shadow-sm transition-colors duration-200">
                      <p className="text-[#c62828] dark:text-[#fbc02d] text-[14px] font-bold mb-4">Your name</p>
                      <div className="flex items-center border-b-2 border-transparent focus-within:border-[#c62828] dark:focus-within:border-[#fbc02d] pb-1 min-w-0">
                        <Input value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={saveProfileName} className="flex-1 border-none shadow-none focus-visible:ring-0 px-0 text-[17px] text-[#111b21] dark:text-[#e9edef] bg-transparent w-full" />
@@ -1205,7 +1207,7 @@ export default function Chat() {
         </div>
 
         {/* MAIN CHAT AREA */}
-        <div className={`flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden h-full sm:border-l border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 w-full ${!activeConversation ? 'hidden sm:flex' : 'flex sm:w-auto'}`} 
+        <div className={`flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a] relative overflow-hidden h-full md:border-l border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 w-full ${!activeConversation ? 'hidden md:flex' : 'flex md:w-auto'}`} 
              style={{ 
                 backgroundImage: activeConversation 
                   ? (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches) 
@@ -1220,7 +1222,7 @@ export default function Chat() {
             <>
               <div className="h-16 px-4 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center justify-between z-10 transition-colors duration-200 shrink-0 w-full">
                 <div className="flex items-center cursor-pointer min-w-0 flex-1" onClick={() => setShowContactInfo(true)}>
-                  <Button variant="ghost" size="icon" className="sm:hidden mr-1 -ml-2 shrink-0 hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); setActiveConversation(null); }}>
+                  <Button variant="ghost" size="icon" className="md:hidden mr-1 -ml-2 shrink-0 hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); setActiveConversation(null); }}>
                     <ArrowLeft className="h-6 w-6 text-[#54656f] dark:text-[#aebac1]" />
                   </Button>
                   <div className="h-10 w-10 rounded-full bg-[#ffebee] dark:bg-[#54656f] overflow-hidden mr-3 flex items-center justify-center shrink-0">
@@ -1235,7 +1237,7 @@ export default function Chat() {
                     </p>
                   </div>
                 </div>
-                <div className="flex space-x-1 sm:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0 items-center">
+                <div className="flex space-x-1 md:space-x-2 text-[#54656f] dark:text-[#aebac1] shrink-0 items-center">
                   {!activeConversation.isGroup && !blockedUsers.includes(activeConversation.user?.id) && (
                     <>
                       <Button variant="ghost" size="icon" className="hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); initiateCall(activeConversation.user.id, true); }}><Video className="h-5 w-5" /></Button>
@@ -1245,14 +1247,14 @@ export default function Chat() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-8 space-y-2 z-10 w-full" onClick={() => setShowEmojiPicker(false)}>
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8 space-y-2 z-10 w-full" onClick={() => setShowEmojiPicker(false)}>
                 {displayMessages.map((msg, idx) => {
                   const isMe = msg.sender_id === user?.id;
                   const messageReactions = allReactions.filter(r => { try { return JSON.parse(r.content).targetId === msg.id; } catch(e) { return false; } });
                   
                   return (
                     <div key={msg.id || idx} className={`flex group ${isMe ? 'justify-end' : 'justify-start'}`} ref={(el) => { if (el && !isMe && msg.status !== 'read' && observer.current) { observer.current.observe(el); } }} data-message-id={msg.id} data-sender-id={msg.sender_id} data-status={msg.status} data-type={msg.type}>
-                      <div className="flex items-start max-w-[85%] sm:max-w-[65%] relative min-w-0">
+                      <div className="flex items-start max-w-[85%] md:max-w-[65%] relative min-w-0">
                         
                         <button onClick={(e) => { e.stopPropagation(); setReplyingTo(msg); }} className={`opacity-0 group-hover:opacity-100 transition-opacity absolute top-0 p-2 text-[#8696a0] hover:text-[#c62828] dark:hover:text-[#fbc02d] ${isMe ? '-left-10' : '-right-10'}`}>
                           <Reply className="h-4 w-4" />
@@ -1274,9 +1276,9 @@ export default function Chat() {
 
                           <div className="flex flex-col relative min-w-[70px]">
                              {msg.type === 'image' ? (
-                               <img src={msg.content} className="max-w-[200px] sm:max-w-[250px] rounded mb-1" />
+                               <img src={msg.content} className="max-w-[200px] md:max-w-[250px] rounded mb-1" />
                              ) : msg.type === 'audio' ? (
-                               <audio controls src={msg.content} className="max-w-[200px] sm:max-w-[250px] h-10 mb-4 mt-1" />
+                               <audio controls src={msg.content} className="max-w-[200px] md:max-w-[250px] h-10 mb-4 mt-1" />
                              ) : msg.type === 'document' ? (
                                <a href={JSON.parse(msg.content).url} target="_blank" rel="noreferrer" className="flex items-center space-x-3 bg-white/40 dark:bg-white/5 p-3 rounded-lg mb-4 mt-1 cursor-pointer hover:bg-white/60 dark:hover:bg-white/10 transition min-w-0">
                                   <FileText className="h-8 w-8 text-[#c62828] dark:text-[#fbc02d] shrink-0" />
@@ -1346,13 +1348,13 @@ export default function Chat() {
               )}
 
               {isCurrentChatBlocked ? (
-                 <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-2 sm:px-4 py-4 z-10 flex justify-center items-center border-t border-[#d1d7db] dark:border-[#222d34] w-full">
+                 <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-2 md:px-4 py-4 z-10 flex justify-center items-center border-t border-[#d1d7db] dark:border-[#222d34] w-full">
                     <p className="text-[14px] text-[#667781] dark:text-[#8696a0] font-medium text-center">
                       You blocked this contact. <span className="cursor-pointer text-[#c62828] dark:text-[#fbc02d] hover:underline font-bold" onClick={() => toggleBlock(activeConversation.user?.id)}>Tap to unblock.</span>
                     </p>
                  </div>
               ) : (
-                <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-2 sm:px-4 py-2 sm:py-3 z-10 flex flex-col border-t border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 shrink-0 w-full">
+                <div className="bg-[#f0f2f5] dark:bg-[#202c33] px-2 md:px-4 py-2 md:py-3 z-10 flex flex-col border-t border-[#d1d7db] dark:border-[#222d34] transition-colors duration-200 shrink-0 w-full">
                   {replyingTo && (
                     <div className="bg-[#f0f2f5] dark:bg-[#202c33] mb-2 px-2 flex transition-colors duration-200 min-w-0">
                        <div className="flex-1 bg-white dark:bg-[#2a3942] rounded-lg p-3 border-l-4 border-[#c62828] dark:border-[#fbc02d] shadow-sm relative min-w-0">
@@ -1365,7 +1367,7 @@ export default function Chat() {
                     </div>
                   )}
                   
-                  <form onSubmit={sendMessage} className="flex items-center space-x-1 sm:space-x-3 relative w-full">
+                  <form onSubmit={sendMessage} className="flex items-center space-x-1 md:space-x-3 relative w-full">
                     
                     <Button type="button" variant="ghost" size="icon" className="text-[#54656f] dark:text-[#8696a0] shrink-0 hover:text-[#c62828]" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
                        <Smile className="h-6 w-6" />
@@ -1377,7 +1379,7 @@ export default function Chat() {
                     </div>
                     
                     {isRecording ? (
-                       <div className="flex-1 flex items-center justify-between bg-white dark:bg-[#2a3942] rounded-full px-4 py-2 sm:py-3 shadow-sm border border-red-500/50 min-w-0">
+                       <div className="flex-1 flex items-center justify-between bg-white dark:bg-[#2a3942] rounded-full px-4 py-2 md:py-3 shadow-sm border border-red-500/50 min-w-0">
                           <div className="flex items-center text-red-600 animate-pulse font-bold">
                             <Mic className="h-5 w-5 mr-2 shrink-0" />
                             <span>{formatDuration(recordingTime)}</span>
@@ -1410,17 +1412,17 @@ export default function Chat() {
                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#fbc02d]/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
 
                <div className="relative z-10 group perspective-1000 animate-float w-full flex justify-center">
-                 <div className="w-[90%] max-w-[450px] p-6 sm:p-10 rounded-3xl bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-all duration-500 flex flex-col items-center text-center">
+                 <div className="w-[90%] max-w-[450px] p-6 md:p-10 rounded-3xl bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-all duration-500 flex flex-col items-center text-center">
                     
-                    <div className="relative w-28 h-28 sm:w-36 sm:h-36 mb-8">
+                    <div className="relative w-28 h-28 md:w-36 md:h-36 mb-8">
                       <div className="absolute inset-[-10px] bg-gradient-to-r from-[#c62828] to-[#fbc02d] rounded-full animate-spin blur-lg opacity-70"></div>
                       <div className="relative z-10 w-full h-full rounded-full border-4 border-white dark:border-[#111b21] overflow-hidden shadow-xl bg-white">
                          <img src={APP_LOGO} alt="EST Logo" className="w-full h-full object-cover scale-[1.2]" />
                       </div>
                     </div>
                     
-                    <h1 className="text-2xl sm:text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-[#c62828] to-[#fbc02d] mb-4">MedLine Ultra</h1>
-                    <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 mb-8 leading-relaxed font-medium px-2">
+                    <h1 className="text-2xl md:text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-[#c62828] to-[#fbc02d] mb-4">MedLine Ultra</h1>
+                    <p className="text-sm md:text-base text-slate-600 dark:text-slate-300 mb-8 leading-relaxed font-medium px-2">
                       Welcome to the ultimate messaging experience. Select a chat to begin.
                     </p>
                     
@@ -1432,7 +1434,7 @@ export default function Chat() {
                  </div>
                </div>
                
-               <div className="absolute bottom-6 sm:bottom-10 flex items-center space-x-1.5 text-[#8696a0] text-[13px] font-medium">
+               <div className="absolute bottom-6 md:bottom-10 flex items-center space-x-1.5 text-[#8696a0] text-[13px] font-medium">
                  <Lock className="h-3 w-3" />
                  <span>End-to-end encrypted</span>
                </div>
@@ -1441,7 +1443,7 @@ export default function Chat() {
         </div>
 
         {showContactInfo && activeConversation && !activeConversation.isGroup && (
-           <div className="absolute inset-0 sm:relative sm:inset-auto flex w-full sm:w-[350px] border-l border-[#d1d7db] dark:border-[#222d34] bg-[#f0f2f5] dark:bg-[#111b21] flex-col z-[60] animate-in slide-in-from-right duration-300">
+           <div className="absolute inset-0 md:relative md:inset-auto flex w-full md:w-[350px] border-l border-[#d1d7db] dark:border-[#222d34] bg-[#f0f2f5] dark:bg-[#111b21] flex-col z-[60] animate-in slide-in-from-right duration-300">
               <div className="h-16 px-6 bg-[#f0f2f5] dark:bg-[#202c33] flex items-center shadow-sm shrink-0">
                  <Button variant="ghost" size="icon" onClick={() => setShowContactInfo(false)} className="mr-4 text-[#54656f] dark:text-[#aebac1] hover:text-[#c62828]">
                    <X className="h-5 w-5" />
@@ -1500,7 +1502,7 @@ export default function Chat() {
                       autoPlay 
                       playsInline 
                       muted 
-                      className={`absolute bottom-28 sm:bottom-8 right-4 sm:right-8 h-40 sm:h-48 w-28 sm:w-32 rounded-xl object-cover shadow-[0_0_20px_rgba(251,192,45,0.3)] border-2 border-[#fbc02d] transition-opacity ${isVideoOff ? 'opacity-0' : 'opacity-100'} z-20`} 
+                      className={`absolute bottom-28 md:bottom-8 right-4 md:right-8 h-40 md:h-48 w-28 md:w-32 rounded-xl object-cover shadow-[0_0_20px_rgba(251,192,45,0.3)] border-2 border-[#fbc02d] transition-opacity ${isVideoOff ? 'opacity-0' : 'opacity-100'} z-20`} 
                     />
                   </>
                 )}
@@ -1513,24 +1515,24 @@ export default function Chat() {
                   </div>
                 )}
 
-                <div className="absolute bottom-8 sm:bottom-12 left-1/2 flex -translate-x-1/2 space-x-4 sm:space-x-6 z-30">
-                  <Button onClick={toggleMute} className={`h-14 w-14 sm:h-16 sm:w-16 rounded-full transition-all hover:scale-105 shrink-0 ${isMuted ? 'bg-[#c62828]' : 'bg-slate-700/80 backdrop-blur-md hover:bg-slate-600'}`}>
-                    {isMuted ? <MicOff className="h-6 w-6 sm:h-8 sm:w-8 text-white" /> : <Mic className="h-6 w-6 sm:h-8 sm:w-8 text-white" />}
+                <div className="absolute bottom-8 md:bottom-12 left-1/2 flex -translate-x-1/2 space-x-4 md:space-x-6 z-30">
+                  <Button onClick={toggleMute} className={`h-14 w-14 md:h-16 md:w-16 rounded-full transition-all hover:scale-105 shrink-0 ${isMuted ? 'bg-[#c62828]' : 'bg-slate-700/80 backdrop-blur-md hover:bg-slate-600'}`}>
+                    {isMuted ? <MicOff className="h-6 w-6 md:h-8 md:w-8 text-white" /> : <Mic className="h-6 w-6 md:h-8 md:w-8 text-white" />}
                   </Button>
 
                   {isVideo && (
                     <>
-                      <Button onClick={toggleVideo} className={`h-14 w-14 sm:h-16 sm:w-16 rounded-full transition-all hover:scale-105 shrink-0 ${isVideoOff ? 'bg-[#c62828]' : 'bg-slate-700/80 backdrop-blur-md hover:bg-slate-600'}`}>
-                        {isVideoOff ? <VideoOff className="h-6 w-6 sm:h-8 sm:w-8 text-white" /> : <Video className="h-6 w-6 sm:h-8 sm:w-8 text-white" />}
+                      <Button onClick={toggleVideo} className={`h-14 w-14 md:h-16 md:w-16 rounded-full transition-all hover:scale-105 shrink-0 ${isVideoOff ? 'bg-[#c62828]' : 'bg-slate-700/80 backdrop-blur-md hover:bg-slate-600'}`}>
+                        {isVideoOff ? <VideoOff className="h-6 w-6 md:h-8 md:w-8 text-white" /> : <Video className="h-6 w-6 md:h-8 md:w-8 text-white" />}
                       </Button>
-                      <Button onClick={cycleFilter} className="h-14 w-14 sm:h-16 sm:w-16 rounded-full bg-[#fbc02d] hover:bg-yellow-500 shadow-[0_0_15px_rgba(251,192,45,0.5)] transition-all hover:scale-105 shrink-0">
-                        <Wand2 className="h-6 w-6 sm:h-8 sm:w-8 text-[#111b21]" />
+                      <Button onClick={cycleFilter} className="h-14 w-14 md:h-16 md:w-16 rounded-full bg-[#fbc02d] hover:bg-yellow-500 shadow-[0_0_15px_rgba(251,192,45,0.5)] transition-all hover:scale-105 shrink-0">
+                        <Wand2 className="h-6 w-6 md:h-8 md:w-8 text-[#111b21]" />
                       </Button>
                     </>
                   )}
 
-                  <Button onClick={() => endCall()} className="h-14 w-14 sm:h-16 sm:w-16 rounded-full bg-[#c62828] hover:bg-red-700 shadow-[0_0_15px_rgba(198,40,40,0.5)] transition-all hover:scale-105 shrink-0">
-                    <Phone className="h-6 w-6 sm:h-8 sm:w-8 rotate-[135deg] text-white" />
+                  <Button onClick={() => endCall()} className="h-14 w-14 md:h-16 md:w-16 rounded-full bg-[#c62828] hover:bg-red-700 shadow-[0_0_15px_rgba(198,40,40,0.5)] transition-all hover:scale-105 shrink-0">
+                    <Phone className="h-6 w-6 md:h-8 md:w-8 rotate-[135deg] text-white" />
                   </Button>
                 </div>
                 <audio ref={outgoingAudioRef} src="https://actions.google.com/sounds/v1/communications/telephone_ring.ogg" loop />
