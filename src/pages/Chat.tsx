@@ -753,9 +753,6 @@ export default function Chat() {
     }
   };
 
-  // ---------------------------------------------------------
-  // RESTORED toggleVideo FUNCTION
-  // ---------------------------------------------------------
   const toggleVideo = async () => {
     if (!localStream || !currentCall) return;
     if (!isVideoOff) {
@@ -1288,6 +1285,21 @@ export default function Chat() {
                       <Button variant="ghost" size="icon" className="hover:text-[#c62828]" onClick={(e) => { e.stopPropagation(); initiateCall(activeConversation.user.id, false); }}><Phone className="h-5 w-5" /></Button>
                     </>
                   )}
+                  <div className="relative">
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setShowHeaderMenu(!showHeaderMenu); }}>
+                      <MoreVertical className="h-5 w-5" />
+                    </Button>
+                    {showHeaderMenu && (
+                      <div className="absolute top-full right-0 mt-2 z-[9999] bg-white dark:bg-[#233138] shadow-2xl rounded-md py-2 w-48 border border-slate-200 dark:border-slate-700 origin-top-right transform transition-all" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-5 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[15px] transition-colors" onClick={() => { setShowContactInfo(true); setShowHeaderMenu(false); }}>
+                           Contact info
+                        </div>
+                        <div className="px-5 py-3 hover:bg-[#f5f6f6] dark:hover:bg-[#182229] cursor-pointer text-[#111b21] dark:text-[#e9edef] text-[15px] transition-colors" onClick={() => { deleteChatLocal(activeConversation.id); setShowHeaderMenu(false); }}>
+                           Close chat
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1609,6 +1621,35 @@ export default function Chat() {
                 <audio ref={outgoingAudioRef} src="https://actions.google.com/sounds/v1/communications/telephone_ring.ogg" loop />
               </div>
             )}
+          </div>
+        )}
+
+        {/* NEW CHAT MODAL - RESTORED FOR "ADD FRIEND" FEATURE */}
+        {showNewChat && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+            <div className="bg-white dark:bg-[#111b21] w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="bg-[#c62828] px-6 py-4 flex items-center justify-between">
+                <h2 className="text-white text-[19px] font-bold">Start New Chat</h2>
+                <button onClick={() => setShowNewChat(false)} className="text-white/80 hover:text-white"><X className="h-6 w-6" /></button>
+              </div>
+              <form onSubmit={handleStartNewChat} className="p-6">
+                <p className="text-[#667781] dark:text-[#8696a0] mb-4 text-[14px]">Enter the registered phone number of the person you want to contact.</p>
+                <div className="mb-6">
+                  <Input
+                    autoFocus
+                    placeholder="e.g. +1234567890"
+                    value={searchPhone}
+                    onChange={(e) => setSearchPhone(e.target.value)}
+                    className="w-full bg-[#f0f2f5] dark:bg-[#2a3942] border-none text-[16px] py-6 px-4 rounded-xl text-[#111b21] dark:text-[#e9edef] focus-visible:ring-1 focus-visible:ring-[#c62828]"
+                  />
+                  {searchError && <p className="text-red-500 text-sm mt-2 font-medium">{searchError}</p>}
+                </div>
+                <div className="flex justify-end space-x-3">
+                  <Button type="button" variant="ghost" onClick={() => setShowNewChat(false)} className="text-[#667781] dark:text-[#8696a0] hover:bg-[#f0f2f5] dark:hover:bg-[#202c33]">Cancel</Button>
+                  <Button type="submit" className="bg-[#c62828] hover:bg-[#b71c1c] text-white rounded-xl px-6">Chat</Button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
